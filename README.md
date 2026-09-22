@@ -25,11 +25,13 @@ same project when changes are pushed to `main`.
 | Control | Action |
 | --- | --- |
 | Enter / Start Round | Begin a round, or replay after the result |
-| W / Up arrow | Pitch up relative to your pipe |
-| S / Down arrow | Pitch down relative to your pipe |
-| A / Left arrow | Turn left relative to your pipe |
-| D / Right arrow | Turn right relative to your pipe |
-| C | Cycle chase / first person / overview |
+| W | Pitch up relative to your pipe |
+| S | Pitch down relative to your pipe |
+| A | Turn left relative to your pipe |
+| D | Turn right relative to your pipe |
+| Arrow keys in Ring view | Hold Left / Right to circle the pipe tip; Up / Down to aim |
+| Arrow keys in other views | Nudge the camera orbit or look direction |
+| C | Cycle ring / chase / first person / overview |
 | F / Auto Mode button | Toggle automatic steering, boost, and round replay |
 | H / HUD button | Hide or restore the gameplay interface and all floating labels |
 | Hold Shift | Boost your own pipe to twice normal speed |
@@ -39,9 +41,14 @@ same project when changes are pushed to `main`.
 | R | Restart with the selected bot count |
 | Tab / Shift+Tab | Follow the next / previous survivor in Auto Mode or after elimination |
 
-Tap to turn; holding a key does not repeat. Two turns can be queued.
-Each queued turn is applied at the next available grid junction.
-Camera switching preserves steering relative to the pipe.
+Each WASD turn is triggered once per tap; two turns can be queued, each applied at
+the next available grid junction. Ring camera movement continues while Left or Right
+is held.
+Manual rounds start with the Ring camera. It rides around the pipe's leading end;
+holding Left or Right moves along the ring while the pipe advances, creating a
+spiraling camera path. Up and Down adjust its aim. The previous chase orbit,
+first-person view, and overview remain available with C. Camera switching preserves
+steering relative to the pipe.
 Losing window focus pauses a manually controlled round.
 Auto Mode keeps running without focus; Escape still pauses it, including the
 five-second result countdown. It starts in a slowly rotating overview. C changes

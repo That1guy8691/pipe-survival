@@ -86,6 +86,7 @@ func run() -> void:
 	check(game.watch_id != selected, "Pipe switching still works with HUD hidden")
 	key(KEY_C)
 	key(KEY_C)
+	key(KEY_C)
 	game._process(0.0)
 	check(game.camera.first_person and not game.pipes.heads[game.watch_id].visible, "Hidden HUD preserves first-person head occlusion")
 	await capture("hud-hidden-first-person.png")

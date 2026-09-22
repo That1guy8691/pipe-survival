@@ -2,12 +2,15 @@ extends "res://tests/menu_click_test.gd"
 ## Rendered input checks plus deterministic autonomous-round progression.
 
 func key(code: Key) -> void:
+	hold_key(code, true)
+	hold_key(code, false)
+
+func hold_key(code: Key, pressed: bool) -> void:
 	# Send through viewport input immediately, avoiding OS event buffering in assertions.
-	for pressed in [true, false]:
-		var event := InputEventKey.new()
-		event.physical_keycode = code
-		event.pressed = pressed
-		root.push_input(event)
+	var event := InputEventKey.new()
+	event.physical_keycode = code
+	event.pressed = pressed
+	root.push_input(event)
 
 func run() -> void:
 	game = load("res://main.tscn").instantiate()
@@ -29,18 +32,33 @@ func run() -> void:
 	check(game.state == "playing" and game.sim.riders[0].length > 0, "Cyan pipe advances without player input")
 	key(KEY_W)
 	check(game.turn_queue.is_empty(), "Manual steering cannot interfere with Auto Mode")
+	var overview_yaw: float = game.camera.yaw
+	key(KEY_LEFT)
+	check(game.camera.yaw < overview_yaw, "Arrow keys orbit the overview camera")
 	key(KEY_SHIFT)
 	check(not game.boost_held, "Auto Mode controls boost independently of Shift")
 	key(KEY_TAB)
 	check(game.watch_id != 0 and game.sim.riders[game.watch_id].alive, "Tab follows another living pipe while cyan is alive")
 	key(KEY_C)
-	check(game.camera.view == game.camera.View.CHASE, "Camera switching retains the followed pipe")
+	check(game.camera.view == game.camera.View.RING and game.watch_id != 0, "C selects the pipe-ring camera without losing the followed pipe")
+	var ring_angle: float = game.camera.ring_angle
+	var ring_position: Vector3 = game.camera.global_position
+	hold_key(KEY_RIGHT, true)
+	await create_timer(0.18).timeout
+	hold_key(KEY_RIGHT, false)
+	check(game.camera.ring_angle < ring_angle and game.camera.global_position.distance_to(ring_position) > 0.05,
+		"Holding Right moves the camera around the advancing pipe tip")
+	key(KEY_C)
+	check(game.camera.view == game.camera.View.CHASE, "The existing orbiting chase view remains available")
 	key(KEY_C)
 	await process_frame
 	await RenderingServer.frame_post_draw
 	check(game.camera.first_person and game.watch_id != 0, "First person works on a selected bot")
 	check(not game.pipes.heads[game.watch_id].visible, "Selected bot head does not obstruct first person")
 	await capture("auto-follow-first-person.png")
+	var first_person_pitch: float = game.camera.first_person_pitch
+	key(KEY_UP)
+	check(game.camera.first_person_pitch > first_person_pitch, "Arrow keys look around in first person")
 	var previous := InputEventKey.new()
 	previous.physical_keycode = KEY_TAB
 	previous.shift_pressed = true
@@ -59,6 +77,15 @@ func run() -> void:
 	check(not game.auto_mode and not game.motion.autoplay, "Pause-menu toggle returns to manual control")
 	await click(game.hud.primary)
 	check(game.state == "playing" and game.watch_id == 0, "Resume returns to the cyan pipe (state=%s, watch=%d, paused_from=%s)" % [game.state, game.watch_id, game.paused_from])
+	game.camera.view = game.camera.View.CHASE
+	game.camera.initialized = false
+	await process_frame
+	var chase_camera_position: Vector3 = game.camera.global_position
+	var chase_yaw: float = game.camera.chase_yaw
+	key(KEY_LEFT)
+	await process_frame
+	check(game.camera.chase_yaw < chase_yaw and game.camera.global_position.distance_to(chase_camera_position) > 0.05
+		and game.turn_queue.is_empty(), "Arrow keys orbit chase view without steering")
 	key(KEY_D)
 	check(not game.turn_queue.is_empty(), "Manual steering is restored (state=%s, alive=%s, auto=%s)" % [game.state, game.sim.riders[0].alive, game.auto_mode])
 	var segment_time: float = game.motion.elapsed[0]
@@ -76,6 +103,10 @@ func run() -> void:
 	await click(game.hud.secondary)
 	check(game.state == "ready" and game.auto_mode, "Returning to title preserves Auto Mode")
 	check(game.arena_width == 40 and game.bot_count == 7, "Auto Mode preserves map and bot choices")
+	game.set_auto_mode(false)
+	game.start_round(822)
+	check(game.camera.view == game.camera.View.RING, "Manual rounds start with the pipe-ring camera")
+	game.set_auto_mode(true)
 
 	# A real AI round, advanced without wall-clock waits or altered rules.
 	game.set_process(false)

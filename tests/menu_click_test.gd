@@ -153,6 +153,7 @@ func run() -> void:
 		game.motion.advance(game.Rules.STEP_TIME)
 	key(KEY_C)
 	key(KEY_C)
+	key(KEY_C)
 	await create_timer(0.5).timeout
 	await capture("arena-60-play.png")
 	key(KEY_ESCAPE)

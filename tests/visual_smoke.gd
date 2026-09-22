@@ -50,8 +50,12 @@ func _ready() -> void:
 	await get_tree().process_frame
 	require(game.state == "countdown", "Enter starts a round")
 	require(game.sim.occupied.size() == 16, "Start clears the title maze")
+	require(game.camera.view == game.camera.View.RING, "Manual rounds start with the pipe-ring camera")
 	game.countdown = 0.03
 	await wait_seconds(0.45)
+	key(KEY_C)
+	await get_tree().process_frame
+	require(game.camera.view == game.camera.View.CHASE, "C switches from the pipe ring to chase")
 	key(KEY_C)
 	await get_tree().process_frame
 	require(game.camera.first_person, "C switches chase to first person")
@@ -79,7 +83,11 @@ func _ready() -> void:
 	require(game.camera.overview, "C switches first person to overview")
 	key(KEY_C)
 	await get_tree().process_frame
-	require(not game.camera.overview and not game.camera.first_person, "Camera cycle returns to chase")
+	require(game.camera.view == game.camera.View.RING, "Camera cycle returns to the pipe-ring view")
+	await capture("02-ring.png")
+	key(KEY_C)
+	await get_tree().process_frame
+	require(game.camera.view == game.camera.View.CHASE, "The original chase view remains in the camera cycle")
 	await capture("02-chase.png")
 	key(KEY_C)
 	key(KEY_C)

@@ -299,12 +299,12 @@ func draw_overlay() -> void:
 	if game.state == "paused":
 		if game.auto_mode:
 			lines = ["Every pipe steers and boosts automatically.", "Follow a pipe: Tab / Shift+Tab",
-				"Change camera: C", "Take control of your pipe: F",
-				"Overview: right-drag to orbit / scroll to zoom", "Toggle HUD and labels: H"]
+				"Change camera: C / take control: F", "Ring view: hold Left / Right to orbit",
+				"Ring view: Up / Down to aim", "Overview: mouse orbit / wheel zoom / HUD: H"]
 		else:
-			lines = ["Pitch: W / S or Up / Down", "Turn: A / D or Left / Right",
-				"Boost: hold Shift", "Change camera: C",
-				"Overview: right-drag to orbit / scroll to zoom", "Toggle HUD and labels: H"]
+			lines = ["Pitch: W / S", "Turn: A / D", "Boost: hold Shift",
+				"Ring view: hold Left / Right to orbit", "Ring view: Up / Down to aim",
+				"Camera: C / overview mouse orbit / HUD: H"]
 	elif game.state == "finished":
 		var winner: int = game.sim.winner
 		title = "ROUND WON" if winner == 0 else "ROUND OVER"
