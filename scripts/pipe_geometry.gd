@@ -1,6 +1,8 @@
 extends RefCounted
 ## Two reusable tube meshes: straight and a true quarter-circle plumbing elbow.
 
+const Appearance = preload("res://scripts/pipe_appearance.gd")
+
 static func centerline(elbow: bool, t: float) -> Vector3:
 	if elbow:
 		return Vector3(1.0 - cos(t * PI * 0.5), 0.0, 1.0 - sin(t * PI * 0.5))
@@ -54,20 +56,4 @@ static func material(color: Color) -> StandardMaterial3D:
 	return result
 
 static func growing_material(color: Color) -> ShaderMaterial:
-	var shader := Shader.new()
-	shader.code = """shader_type spatial;
-render_mode cull_disabled;
-uniform vec4 pipe_color : source_color;
-uniform float fill = 0.0;
-void fragment() {
-    if (UV.y > fill) discard;
-    ALBEDO = pipe_color.rgb;
-    METALLIC = 0.62;
-    ROUGHNESS = 0.28;
-    EMISSION = pipe_color.rgb * 0.13;
-}
-"""
-	var result := ShaderMaterial.new()
-	result.shader = shader
-	result.set_shader_parameter("pipe_color", color)
-	return result
+	return Appearance.material(color, Appearance.Pattern.SOLID, 2.0, 0.0)

@@ -7,6 +7,8 @@ const Arena = preload("res://scripts/arena.gd")
 const CameraRig = preload("res://scripts/camera_rig.gd")
 const Hud = preload("res://scripts/hud.gd")
 const OrbRenderer = preload("res://scripts/orb_renderer.gd")
+const BOT_RESPAWN_DELAY := 2.5
+const RESPAWN_RETRY_DELAY := 0.75
 var sim := Rules.new()
 var motion := Motion.new(sim)
 var pipes := PipeRenderer.new()
@@ -19,6 +21,7 @@ var bot_count := Rules.DEFAULT_BOTS
 var arena_width := 60
 var player_name := "YOU"
 var player_color := Color("56eddf")
+var player_pattern := PipeRenderer.Appearance.Pattern.SOLID
 var arena: Node3D
 var turn_queue: Array[String]:
 	get: return motion.turn_queue
@@ -26,6 +29,7 @@ var watch_id := 0
 var clearance := 10
 var automated := false
 var auto_mode := false
+var endless_mode := false
 var hud_enabled := true
 var auto_restart_left := 5.0
 var paused_from := "playing"
@@ -39,6 +43,8 @@ var score_message := ""
 var score_message_time := 0.0
 var fov_message_time := 0.0
 var fov_message := ""
+var respawn_timers: Array[float] = []
+var player_respawn_pending := false
 
 func _ready() -> void:
 	DisplayServer.window_set_min_size(Vector2i(960, 600))
@@ -53,6 +59,7 @@ func _ready() -> void:
 	hud.game = self
 	hud.primary_clicked.connect(primary_action)
 	hud.secondary_clicked.connect(show_title)
+	hud.quick_restart_clicked.connect(request_player_restart)
 	motion.completed.connect(on_completed)
 	motion.planned.connect(on_planned)
 	get_window().focus_exited.connect(func():
@@ -71,8 +78,13 @@ func _ready() -> void:
 		driver.game = self
 		add_child(driver)
 
-func reset_world(seed_value: int = 0) -> void:
+func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
+	sim.endless_mode = endless_mode and not title_preview
 	sim.reset(seed_value, bot_count, arena_width, player_name, player_color)
+	respawn_timers.clear()
+	for i in range(sim.riders.size()):
+		respawn_timers.append(-1.0)
+	player_respawn_pending = false
 	if not is_instance_valid(arena) or arena.width != sim.arena_width:
 		if is_instance_valid(arena):
 			remove_child(arena)
@@ -81,6 +93,7 @@ func reset_world(seed_value: int = 0) -> void:
 		arena.width = sim.arena_width
 		add_child(arena)
 	camera.set_arena_size(sim.arena_width)
+	pipes.player_pattern = player_pattern
 	pipes.reset(sim.riders.size())
 	motion.autoplay = auto_mode
 	motion.reset()
@@ -101,7 +114,7 @@ func reset_world(seed_value: int = 0) -> void:
 	update_clearance()
 
 func show_title() -> void:
-	reset_world(814)
+	reset_world(814, true)
 	state = "ready"
 	motion.autoplay = true
 	for tick in range(60):
@@ -119,12 +132,20 @@ func start_round(seed_value: int = 0) -> void:
 	camera.overview = auto_mode
 
 func set_auto_mode(enabled: bool) -> void:
+	var was_auto := auto_mode
 	auto_mode = enabled
 	motion.autoplay = enabled
 	turn_queue.clear()
 	boost_held = false
 	motion.boost_requested = false
 	auto_restart_left = 5.0
+	if endless_mode and state in ["playing", "paused"] and not sim.riders[0].alive:
+		if enabled and not player_respawn_pending:
+			player_respawn_pending = true
+			respawn_timers[0] = BOT_RESPAWN_DELAY
+		elif not enabled and was_auto:
+			player_respawn_pending = false
+			respawn_timers[0] = -1.0
 	# Keep the current segment intact; the next junction uses the new driver.
 	if not enabled and sim.riders[0].alive:
 		watch_id = 0
@@ -156,11 +177,14 @@ func primary_action() -> void:
 		state = paused_from
 	elif state in ["ready", "finished"]:
 		start_round()
+	elif endless_mode and state == "playing" and not sim.riders[0].alive:
+		request_player_restart()
 
 func on_planned(indices: Array[int]) -> void:
 	for i in indices:
 		pipes.begin_rider(i, sim.riders[i], motion.directions[i])
-	update_clearance()
+	if sim.riders[0].alive:
+		update_clearance()
 
 func update_clearance() -> void:
 	clearance = 0
@@ -171,6 +195,14 @@ func update_clearance() -> void:
 
 func on_completed(moves: Array[Dictionary]) -> void:
 	for move: Dictionary in moves:
+		if endless_mode and move.died:
+			var dead_id: int = move.id
+			respawn_timers[dead_id] = BOT_RESPAWN_DELAY if dead_id > 0 or auto_mode else -1.0
+			if dead_id == 0:
+				player_respawn_pending = auto_mode
+				boost_held = false
+				motion.boost_requested = false
+				motion.turn_queue.clear()
 		pipes.animate_rider(move.id, 1.0)
 		if move.id == 0 and move.has("orb_points"):
 			score_message = "+25  ORB COLLECTED"
@@ -184,7 +216,7 @@ func on_completed(moves: Array[Dictionary]) -> void:
 		var living := sim.alive_ids()
 		if not living.is_empty():
 			watch_id = living[0]
-		if not auto_mode:
+		if not auto_mode and not endless_mode:
 			camera.overview = true
 		camera.initialized = false
 	if sim.finished:
@@ -206,6 +238,8 @@ func _process(delta: float) -> void:
 		motion.boost_requested = boost_held
 		motion.advance(minf(delta, 0.1))
 		score_message_time = maxf(0.0, score_message_time - delta)
+		if endless_mode:
+			advance_endless_respawns(delta)
 	elif state == "finished" and auto_mode:
 		auto_restart_left = maxf(0.0, auto_restart_left - delta)
 		if auto_restart_left <= 0.0:
@@ -220,7 +254,7 @@ func _process(delta: float) -> void:
 	for i in range(sim.riders.size()):
 		if sim.riders[i].alive:
 			pipes.animate_rider(i, motion.progress(i))
-	if not pipes.plans.is_empty():
+	if not pipes.plans.is_empty() and (not endless_mode or sim.riders[watch_id].alive):
 		var head_pose := pipes.pose(watch_id, motion.progress(watch_id))
 		camera.boosting = sim.riders[watch_id].boosting and state == "playing"
 		camera.follow(head_pose, delta, state in ["ready", "finished"])
@@ -266,7 +300,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif key == KEY_H:
 			set_hud_enabled(not hud_enabled)
 		elif key == KEY_R:
-			start_round()
+			if endless_mode and state == "playing" and not sim.riders[0].alive:
+				request_player_restart()
+			else:
+				start_round()
 		elif key == KEY_C:
 			camera.toggle()
 		elif key == KEY_TAB and (auto_mode or not sim.riders[0].alive):
@@ -297,3 +334,39 @@ func adjust_camera_fov(change: float) -> void:
 	camera.set_base_fov(camera.base_fov + change)
 	fov_message = "FOV / %d°" % roundi(camera.base_fov)
 	fov_message_time = 1.5
+
+func set_endless_mode(enabled: bool) -> void:
+	endless_mode = enabled
+	hud.queue_redraw()
+
+func request_player_restart() -> void:
+	if not endless_mode or state != "playing" or sim.riders[0].alive:
+		return
+	player_respawn_pending = true
+	respawn_timers[0] = 0.0
+	advance_endless_respawns(0.0)
+
+func advance_endless_respawns(delta: float) -> void:
+	for i in range(sim.riders.size()):
+		if sim.riders[i].alive:
+			continue
+		if i == 0 and not player_respawn_pending:
+			continue
+		if i > 0 and respawn_timers[i] < 0.0:
+			continue
+		respawn_timers[i] = maxf(0.0, respawn_timers[i] - delta)
+		if respawn_timers[i] > 0.0:
+			continue
+		if not sim.respawn_rider(i):
+			respawn_timers[i] = RESPAWN_RETRY_DELAY
+			continue
+		respawn_timers[i] = -1.0
+		if i == 0:
+			player_respawn_pending = false
+			watch_id = 0
+		elif not sim.riders[watch_id].alive:
+			watch_id = i
+		pipes.restore_rider(i, sim.riders[i])
+		motion.respawn_rider(i)
+		camera.initialized = false
+		update_hud_visibility()

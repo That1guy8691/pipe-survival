@@ -38,6 +38,7 @@ var ticks := 0
 var finished := false
 var winner := -1
 var elapsed_time := 0.0
+var endless_mode := false
 var scoring := Scoring.new()
 var cell_count := DEFAULT_SIZE
 var arena_width: float:
@@ -160,6 +161,58 @@ func inlet_direction(cell: Vector3i) -> Vector3i:
 			direction[axis] = 1 if cell[axis] == 0 else -1
 			return direction
 	return Vector3i.ZERO
+
+func respawn_rider(index: int) -> bool:
+	if index < 0 or index >= riders.size() or riders[index].alive:
+		return false
+	var candidates: Array[Vector3i] = []
+	for a in range(1, cell_count - 1):
+		for b in range(1, cell_count - 1):
+			for side in [0, cell_count - 1]:
+				candidates.append(Vector3i(side, a, b))
+				candidates.append(Vector3i(a, side, b))
+				candidates.append(Vector3i(a, b, side))
+	if candidates.is_empty():
+		return false
+	var offset := rng.randi_range(0, candidates.size() - 1)
+	var spawn_cell := Vector3i(-1, -1, -1)
+	var spawn_forward := Vector3i.ZERO
+	for step in range(candidates.size()):
+		var candidate := candidates[(offset + step) % candidates.size()]
+		var inward := inlet_direction(candidate)
+		if is_open(candidate) and is_open(candidate + inward):
+			spawn_cell = candidate
+			spawn_forward = inward
+			break
+	if spawn_forward == Vector3i.ZERO:
+		return false
+	var rider: Dictionary = riders[index]
+	rider.cell = spawn_cell
+	rider.forward = spawn_forward
+	rider.up = Vector3i.BACK if spawn_forward.y != 0 else Vector3i.UP
+	rider.source_cell = spawn_cell
+	rider.source_forward = spawn_forward
+	rider.alive = true
+	rider.length = 0
+	rider.death_tick = -1
+	rider.cause = ""
+	rider.survival_time = 0.0
+	rider.pressure = 1.0
+	rider.boosting = false
+	rider.boost_locked = false
+	if scoring.orbs.erase(spawn_cell):
+		scoring.revision += 1
+	occupied[spawn_cell] = index
+	return true
+
+func remove_rider_trail(index: int) -> int:
+	var cells := occupied.keys()
+	var removed := 0
+	for cell: Vector3i in cells:
+		if int(occupied[cell]) == index:
+			occupied.erase(cell)
+			removed += 1
+	return removed
 
 func elapse(delta: float) -> void:
 	elapsed_time += delta
@@ -287,6 +340,11 @@ func advance(directions: Array[Vector3i], movers: Array[int] = [], elapsed: floa
 			rider.boosting = false
 			rider.death_tick = ticks + 1
 			rider.cause = cause
+			if endless_mode:
+				rider.score = 0
+				rider.orb_count = 0
+				rider.eliminations = 0
+				rider.survival_time = 0.0
 		else:
 			rider.cell = move.target
 			rider.up = move.up
@@ -295,9 +353,15 @@ func advance(directions: Array[Vector3i], movers: Array[int] = [], elapsed: floa
 		if not move.died:
 			occupied[move.target] = move.id
 	scoring.resolve(self, moves)
+	if endless_mode:
+		for move: Dictionary in moves:
+			if move.died:
+				remove_rider_trail(move.id)
+		if not moves.is_empty():
+			scoring.refill(self)
 	ticks += 1
 	var living := alive_ids()
-	if living.size() <= 1:
+	if not endless_mode and living.size() <= 1:
 		finished = true
 		winner = living[0] if living.size() == 1 else -1
 		if winner >= 0:

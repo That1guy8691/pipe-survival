@@ -3,6 +3,8 @@ extends Node3D
 const Rules = preload("res://scripts/simulation.gd")
 const Geometry = preload("res://scripts/pipe_geometry.gd")
 const Inlet = preload("res://scripts/pipe_inlet.gd")
+const Appearance = preload("res://scripts/pipe_appearance.gd")
+var player_pattern := Appearance.Pattern.SOLID
 var model
 var meshes: Array[ArrayMesh] = []
 var batches: Array = []
@@ -34,7 +36,8 @@ func ensure_count(total: int) -> void:
 			batch.multimesh.mesh = meshes[kind]
 			batch.multimesh.instance_count = 256
 			batch.multimesh.visible_instance_count = 0
-			batch.material_override = Geometry.material(pipe_color)
+			batch.material_override = Appearance.material(pipe_color, player_pattern if i == 0 else 0,
+				2.0 if kind == 0 else PI * 0.5)
 			add_child(batch)
 			per_rider.append(batch)
 		batches.append(per_rider)
@@ -84,12 +87,10 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 		var rider: Dictionary = model.riders[i]
 		var pipe_color: Color = model.rider_color(i)
 		for batch: MultiMeshInstance3D in batches[i]:
-			var material := batch.material_override as StandardMaterial3D
-			material.albedo_color = pipe_color
-			material.emission = pipe_color * 0.13
+			Appearance.apply(batch.material_override, pipe_color, player_pattern if i == 0 else 0)
 		inlet_materials[i].albedo_color = pipe_color
 		inlet_materials[i].emission = pipe_color * 0.13
-		active_materials[i].set_shader_parameter("pipe_color", pipe_color)
+		Appearance.apply(active_materials[i], pipe_color, player_pattern if i == 0 else 0)
 		var head_material := heads[i].material_override as StandardMaterial3D
 		head_material.albedo_color = pipe_color.lightened(0.25)
 		head_material.emission = pipe_color * 0.5
@@ -114,6 +115,7 @@ func begin_rider(i: int, rider: Dictionary, outgoing: Vector3i) -> void:
 		return
 	active[i].mesh = meshes[1 if elbow else 0]
 	active[i].transform = Transform3D(basis, origin)
+	active_materials[i].set_shader_parameter("segment_length", PI * 0.5 if elbow else 2.0)
 	active_materials[i].set_shader_parameter("fill", 0.0)
 
 func pose(index: int, progress: float) -> Dictionary:
@@ -140,6 +142,9 @@ func animate_rider(i: int, progress: float) -> void:
 func commit(moves: Array[Dictionary]) -> void:
 	for move: Dictionary in moves:
 		var i: int = move.id
+		if model.endless_mode and move.died:
+			remove_rider(i)
+			continue
 		var kind := 1 if move.incoming != move.outgoing else 0
 		var batch: MultiMeshInstance3D = batches[i][kind]
 		var count: int = counts[i][kind]
@@ -153,6 +158,31 @@ func commit(moves: Array[Dictionary]) -> void:
 		if move.died:
 			heads[i].visible = false
 			markers[i].visible = false
+
+func remove_rider(index: int) -> void:
+	if index < 0 or index >= batches.size():
+		return
+	counts[index] = [0, 0]
+	for batch: MultiMeshInstance3D in batches[index]:
+		batch.multimesh.visible_instance_count = 0
+	active[index].visible = false
+	active_materials[index].set_shader_parameter("fill", 0.0)
+	heads[index].visible = false
+	markers[index].visible = false
+	inlets[index].visible = false
+	plans[index] = {}
+
+func restore_rider(index: int, rider: Dictionary) -> void:
+	if index < 0 or index >= inlets.size():
+		return
+	var forward: Vector3i = rider.source_forward
+	inlets[index].transform = Transform3D(Geometry.orientation(forward, forward),
+		model.world(rider.source_cell) - Vector3(forward) * Rules.SPACING * 0.5)
+	inlets[index].visible = true
+	heads[index].position = model.world(rider.cell)
+	markers[index].position = model.world(rider.cell) + Vector3(rider.up) * 1.65
+	heads[index].visible = true
+	markers[index].visible = true
 
 func grow_buffer(buffer: MultiMesh, count: int) -> void:
 	var saved: Array[Transform3D] = []

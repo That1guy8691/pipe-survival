@@ -55,6 +55,20 @@ func plan(index: int) -> void:
 	duration[index] = Rules.STEP_TIME / BOOST_MULTIPLIER if rider.boosting else Rules.STEP_TIME
 	elapsed[index] = 0.0
 
+func respawn_rider(index: int) -> void:
+	if index < 0 or index >= sim.riders.size() or not sim.riders[index].alive:
+		return
+	if index == 0:
+		turn_queue.clear()
+		boost_requested = false
+		sim.riders[index].boost_locked = false
+	elapsed[index] = 0.0
+	duration[index] = Rules.STEP_TIME
+	directions[index] = sim.riders[index].forward
+	plan(index)
+	var planned_indices: Array[int] = [index]
+	planned.emit(planned_indices)
+
 func progress(index: int) -> float:
 	return clampf(elapsed[index] / duration[index], 0.0, 1.0)
 

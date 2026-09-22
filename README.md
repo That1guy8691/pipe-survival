@@ -1,11 +1,17 @@
 # PIPE / Survival
 
 A Godot 4.7 game inspired by the classic growing-pipes screensaver.
-You and local bots build a permanent 3D maze inside a cube. Last pipe alive wins.
+Choose Survival, where old trails remain and the last pipe alive wins, or Endless,
+where trails disappear when riders die and pipes return inside the same finite cube.
 Choose 7, 15, 23, or 31 bots on the title screen; the default is 15.
 Choose a 40, 60, 80, or 100-unit cube with the Arena Size dropdown; the default is 60.
 Adjust the camera's base field of view from 60° to 110° in Game Options.
 Both dropdowns and the Start, Resume, and Back to Title buttons support mouse clicks.
+Game Options also lets you choose Solid, Stripes, or Spots for your pipe beside the
+color picker. The live 3D preview shows your color and pattern on straight sections
+and a curved elbow. Patterns keep the collars plain and stay with your pipe across
+rounds and Endless respawns; bots retain their solid colors. Like your name and color,
+the selection lasts for the current game session.
 Pipes grow from colored, bolted wall inlets distributed across all six faces.
 Pickups and bot paths use the outer lanes as well as the center of the cube.
 Turn on Auto Mode to watch every pipe steer and boost itself. Completed rounds
@@ -40,8 +46,17 @@ same project when changes are pushed to `main`.
 | Right mouse drag | Orbit in overview |
 | Mouse wheel | Zoom in overview |
 | Escape | Pause / resume |
-| R | Restart with the selected bot count |
+| R | Restart Survival; respawn yourself after a crash in Endless |
 | Tab / Shift+Tab | Follow the next / previous survivor in Auto Mode or after elimination |
+
+Endless keeps the cube size fixed. A rider's death clears only that rider's trail;
+bots return after a short delay at a safe open wall inlet. After a player crash, press
+R or Enter, or use the on-screen Restart Pipe button. This respawns only your pipe in
+the current session; surviving pipes, their scores and trails, and the selected cube stay put.
+Each rider's score, pickup count, eliminations, and survival streak reset on death.
+In Auto Mode your pipe also returns automatically after the same short delay as bots.
+If no safe inlet is open yet, the respawn waits for one. Survival remains the default
+mode and keeps its original persistent trails and last-pipe-wins ending.
 
 Each WASD turn is triggered once per tap; two turns can be queued, each applied at
 the next available grid junction. Ring camera movement continues while Left or Right
@@ -100,9 +115,12 @@ points stop when you die; the last surviving pipe wins regardless of score.
 - Three cell transitions per second (6 grid units per second); bends follow rounded paths.
 - Wall, self-pipe, and other-pipe collisions eliminate a player.
 - Simultaneous attempts to enter the same cell eliminate both heads.
-- Eliminated pipes remain solid until the next round.
-- A round ends when at most one player remains. A simultaneous final collision is a draw.
-- Survival only, with collectible points. No networking or account setup.
+- Survival keeps eliminated pipes solid until the next round and ends when at most one
+  player remains. A simultaneous final collision is a draw.
+- Endless clears eliminated trails, keeps the session running, and respawns bots safely
+  inside the selected cube. Each death resets that rider's score and life statistics;
+  the session clock and surviving riders continue. Auto Mode respawns your pipe too.
+- Both modes use collectible points. No networking or account setup.
 
 The collision model uses occupied grid cells. Visible gaps do not create additional
 off-grid routes. Arena faces use a wire grid so overview cameras can see inside.
@@ -113,6 +131,7 @@ The initial title backdrop is a simulated round; starting clears it completely.
 `scripts/simulation.gd` owns rules, spawns, local steering frames, and bot decisions.
 `scripts/motion.gd` schedules each pipe independently and manages the boost meter.
 `scripts/scoring.gd` owns pickups and point awards.
+Endless respawn and trail cleanup use the same simulation and renderer ownership.
 `scripts/orb_renderer.gd` draws the collectible gold orbs.
 `scripts/pipe_geometry.gd` creates reusable straight and elbow meshes.
 `scripts/pipe_renderer.gd` batches permanent pipe sections and animates their growing tips.
@@ -129,6 +148,8 @@ Run using the Godot 4.7 console executable from this project directory:
 ```powershell
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/rules_test.gd
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/features_test.gd
+Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/endless_mode_test.gd
+Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/pipe_patterns_test.gd
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/arena_sizes_test.gd
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/inlets_test.gd
 ```
@@ -142,6 +163,10 @@ Godot_v4.7-stable_win64_console.exe --path . -- --qa --qa-dir=C:\path\to\qa-outp
 
 The smoke driver is never loaded during ordinary play. Procedural meshes and the
 standard Godot runtime are the only game dependencies. The UI uses local system fonts.
+
+For rendered pipe-pattern captures, run `tests/pipe_patterns_test.gd` without
+`--headless` and add `-- --qa-dir=C:\path\to\qa-output`. The menu pointer test
+(`tests/menu_click_test.gd`) also covers pattern selection and the live preview.
 
 The Auto Mode check exercises its actual menu toggle and keyboard controls, follows
 bots in first person, completes an AI round, and checks automatic replay and pause:

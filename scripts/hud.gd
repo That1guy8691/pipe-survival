@@ -2,10 +2,13 @@ extends Control
 
 signal primary_clicked
 signal secondary_clicked
+signal quick_restart_clicked
 const INK := Color("e8f2f5")
 const MUTED := Color("8da4b8")
 const ACCENT := Color("56eddf")
 const PLAYER_COLOR := Color("56eddf")
+const Appearance = preload("res://scripts/pipe_appearance.gd")
+const PipePreview = preload("res://scripts/pipe_preview.gd")
 var game: Node
 var font := SystemFont.new()
 var mono := SystemFont.new()
@@ -19,8 +22,12 @@ var fov_slider := HSlider.new()
 var player_name_entry := LineEdit.new()
 var player_color_picker := ColorPickerButton.new()
 var player_color_label := Label.new()
+var pattern_selector := OptionButton.new()
+var pipe_preview := PipePreview.new()
 var auto_toggle := Button.new()
 var hud_toggle := Button.new()
+var mode_toggle := Button.new()
+var quick_restart := Button.new()
 var options_open := false
 
 func _ready() -> void:
@@ -28,7 +35,7 @@ func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	font.font_names = PackedStringArray(["Bahnschrift", "Segoe UI"])
 	mono.font_names = PackedStringArray(["Consolas"])
-	for button in [primary, secondary, options_button, options_back, auto_toggle, hud_toggle]:
+	for button in [primary, secondary, options_button, options_back, auto_toggle, hud_toggle, mode_toggle, quick_restart]:
 		add_child(button)
 		button.focus_mode = Control.FOCUS_NONE
 		button.add_theme_font_override("font", font)
@@ -39,6 +46,7 @@ func _ready() -> void:
 		button.add_theme_stylebox_override("pressed", box(ACCENT.darkened(0.15), 9))
 	primary.pressed.connect(func(): primary_clicked.emit())
 	secondary.pressed.connect(func(): secondary_clicked.emit())
+	quick_restart.pressed.connect(func(): quick_restart_clicked.emit())
 	for button in [secondary, options_button, options_back]:
 		button.add_theme_color_override("font_color", MUTED)
 		button.add_theme_stylebox_override("normal", box(Color("162536"), 9))
@@ -61,6 +69,15 @@ func _ready() -> void:
 	hud_toggle.toggled.connect(func(enabled: bool): game.set_hud_enabled(enabled))
 	for toggle in [auto_toggle, hud_toggle]:
 		toggle.add_theme_font_size_override("font_size", 18)
+	mode_toggle.toggle_mode = true
+	mode_toggle.add_theme_font_size_override("font_size", 15)
+	mode_toggle.add_theme_color_override("font_color", MUTED)
+	mode_toggle.add_theme_color_override("font_pressed_color", Color("071d23"))
+	mode_toggle.add_theme_stylebox_override("normal", box(Color("23384d"), 9))
+	mode_toggle.add_theme_stylebox_override("hover", box(Color("30485c"), 9))
+	mode_toggle.toggled.connect(func(enabled: bool): game.set_endless_mode(enabled))
+	quick_restart.text = "RESTART PIPE"
+	quick_restart.add_theme_font_size_override("font_size", 17)
 	add_child(bot_selector)
 	for count in [7, 15, 23, 31]:
 		bot_selector.add_item("%d BOTS" % count, count)
@@ -134,6 +151,18 @@ func _ready() -> void:
 	player_color_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	player_color_label.add_theme_font_override("font", font)
 	player_color_label.add_theme_font_size_override("font_size", 16)
+	add_child(pattern_selector)
+	for i in range(Appearance.NAMES.size()):
+		pattern_selector.add_item(Appearance.NAMES[i], i)
+	pattern_selector.focus_mode = Control.FOCUS_NONE
+	pattern_selector.tooltip_text = "Choose the pattern for your pipe"
+	pattern_selector.add_theme_font_override("font", font)
+	pattern_selector.add_theme_font_size_override("font_size", 18)
+	pattern_selector.add_theme_stylebox_override("normal", selector_normal)
+	pattern_selector.add_theme_stylebox_override("hover", selector_hover)
+	pattern_selector.item_selected.connect(func(index: int): game.player_pattern = pattern_selector.get_item_id(index))
+	pipe_preview.visible = false
+	add_child(pipe_preview)
 
 static func box(color: Color, radius: int = 12) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
@@ -151,6 +180,7 @@ func finish_options() -> void:
 		return
 	game.player_name = clean_player_name(player_name_entry.text)
 	game.player_color = player_color_picker.color
+	game.player_pattern = pattern_selector.get_selected_id()
 	player_name_entry.release_focus()
 	options_open = false
 	game.show_title()
@@ -173,12 +203,22 @@ func _process(_delta: float) -> void:
 		secondary.visible = game.state == "paused"
 		options_button.visible = game.state == "ready" and not options_open
 		options_back.visible = game.state == "ready" and options_open
+		mode_toggle.visible = game.state == "ready" and not options_open
+		mode_toggle.set_pressed_no_signal(game.endless_mode)
+		quick_restart.visible = game.state == "playing" and game.endless_mode and not game.sim.riders[0].alive
+		quick_restart.text = ("RESPAWNING..." if game.auto_mode else "WAITING FOR SPACE") if game.player_respawn_pending else "RESTART PIPE"
+		quick_restart.position = Vector2((size.x - 228) / 2.0, size.y - 145)
+		quick_restart.size = Vector2(228, 44)
 		bot_selector.visible = game.state == "ready" and options_open
 		size_selector.visible = game.state == "ready" and options_open
 		fov_slider.visible = game.state == "ready" and options_open
 		player_name_entry.visible = game.state == "ready" and options_open
 		player_color_picker.visible = game.state == "ready" and options_open
 		player_color_label.visible = game.state == "ready" and options_open
+		pattern_selector.visible = game.state == "ready" and options_open
+		pipe_preview.visible = game.state == "ready" and options_open
+		if pipe_preview.visible:
+			pipe_preview.set_appearance(game.player_color, game.player_pattern)
 		auto_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
 		auto_toggle.set_pressed_no_signal(game.auto_mode)
 		hud_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
@@ -195,10 +235,11 @@ func _draw() -> void:
 	var focus_id: int = game.watch_id if game.auto_mode else 0
 	var focus_rider: Dictionary = sim.riders[focus_id]
 	panel(Rect2(24, 24, 252, 140))
-	label_at("PIPE / SURVIVAL", Vector2(44, 53), 18, ACCENT)
+	label_at("PIPE / ENDLESS" if game.endless_mode else "PIPE / SURVIVAL", Vector2(44, 53), 18, ACCENT)
 	label_at("%d / %d ALIVE" % [sim.alive_ids().size(), sim.riders.size()], Vector2(43, 97), 32)
 	var seconds := int(sim.elapsed_time)
-	label_at("ROUND  %02d:%02d" % [seconds / 60, seconds % 60], Vector2(44, 139), 21, MUTED, true)
+	label_at("SESSION  %02d:%02d" % [seconds / 60, seconds % 60] if game.endless_mode
+		else "ROUND  %02d:%02d" % [seconds / 60, seconds % 60], Vector2(44, 139), 21, MUTED, true)
 	panel(Rect2(size.x / 2.0 - 186, 24, 372, 88))
 	var following: bool = game.auto_mode or not sim.riders[0].alive
 	centered("AUTO MODE / FOLLOWING" if game.auto_mode else ("SPECTATING" if following else "YOUR PIPE"), 53, 16, MUTED)
@@ -286,10 +327,14 @@ func draw_play_messages() -> void:
 			centered(game.score_message, h / 2.0 + 65, 20, Color("ffdb77"))
 	if game.fov_message_time > 0.0:
 		centered(game.fov_message, h / 2.0 - 68, 17, ACCENT)
-	if game.state == "playing" and not sim.riders[0].alive and not game.auto_mode:
+	if game.state == "playing" and not sim.riders[0].alive and (not game.auto_mode or game.endless_mode):
 		panel(Rect2(size.x / 2 - 228, h - 230, 456, 76))
 		centered("PIPE LOST / " + str(sim.riders[0].cause).to_upper(), h - 201, 20, Color("ffb65a"))
-		centered("R to restart / Tab to follow survivors", h - 174, 17, MUTED)
+		if game.endless_mode:
+			centered("Your pipe returns automatically / session continues" if game.auto_mode
+				else "Press R or click Restart / session continues", h - 174, 17, MUTED)
+		else:
+			centered("R to restart / Tab to follow survivors", h - 174, 17, MUTED)
 	if game.state == "countdown":
 		centered(str(ceili(game.countdown)), h / 2.0 + 25, 88, ACCENT)
 		centered("AUTO MODE  /  SIT BACK AND WATCH" if game.auto_mode else "YOUR PIPE  /  GET READY", h / 2.0 + 68, 17)
@@ -298,7 +343,8 @@ func draw_overlay() -> void:
 	var w := size.x
 	var h := size.y
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.005, 0.012, 0.025, 0.5))
-	var rect := Rect2(w / 2 - 280, h / 2 - 260, 560, 520)
+	var panel_height := 664.0 if game.state == "ready" and options_open else 520.0
+	var rect := Rect2(w / 2 - 280, (h - panel_height) / 2.0, 560, panel_height)
 	panel(rect, Color("0d1b2b"))
 	draw_rect(Rect2(rect.position + Vector2(25, 0), Vector2(510, 3)), ACCENT)
 	if game.state == "ready":
@@ -347,15 +393,20 @@ func draw_overlay() -> void:
 		secondary.size = Vector2(484, 42)
 
 func draw_title_page(rect: Rect2) -> void:
-	centered("PIPE / SURVIVAL", rect.position.y + 74, 32)
-	centered("SURVIVAL IN A GROWING 3D PIPE MAZE", rect.position.y + 104, 14, ACCENT)
-	var lines := ["Steer through the cube; the trail you leave stays behind.",
+	centered("PIPE / ENDLESS" if game.endless_mode else "PIPE / SURVIVAL", rect.position.y + 74, 32)
+	centered("TRAILS RECYCLE INSIDE THE SAME CUBE" if game.endless_mode else "SURVIVAL IN A GROWING 3D PIPE MAZE",
+		rect.position.y + 104, 14, ACCENT)
+	var lines := ["Finite cube; only the dead rider's trail disappears.",
+		"Bots return after a delay while other pipes keep moving.",
+		"Each life starts with a fresh score and survival streak.",
+		"After a crash, R restarts your pipe; Esc shows controls."] if game.endless_mode else [
+		"Steer through the cube; the trail you leave stays behind.",
 		"Orbs +25  /  survival +1 per second  /  eliminations +100.",
 		"Crash into walls or trails and you're out. Last pipe wins.",
 		"Press Esc during a round to pause and see the controls."]
 	for i in range(lines.size()):
 		centered(lines[i], rect.position.y + 151 + i * 27, 17, MUTED)
-	draw_menu_toggles(rect, 270)
+	draw_title_mode_controls(rect, 270)
 	options_button.visible = true
 	options_button.text = "GAME OPTIONS"
 	options_button.position = rect.position + Vector2(38, 330)
@@ -364,39 +415,61 @@ func draw_title_page(rect: Rect2) -> void:
 	primary.text = "ENTER  /  WATCH AUTO MODE" if game.auto_mode else "ENTER  /  START ROUND"
 	primary.position = rect.position + Vector2(38, 389)
 	primary.size = Vector2(484, 52)
-	centered("YOU + %d BOTS    /    %dM CUBE" % [game.bot_count, game.arena_width], rect.position.y + 486, 14, MUTED)
+	var mode_name := "ENDLESS" if game.endless_mode else "SURVIVAL"
+	centered("%s    /    YOU + %d BOTS    /    %dM CUBE" % [mode_name, game.bot_count, game.arena_width], rect.position.y + 486, 14, MUTED)
+
+func draw_title_mode_controls(rect: Rect2, offset_y: float) -> void:
+	var width := 156.0
+	var gap := 8.0
+	var origin := rect.position + Vector2(38, offset_y)
+	mode_toggle.text = "MODE / ENDLESS" if game.endless_mode else "MODE / SURVIVAL"
+	mode_toggle.position = origin
+	mode_toggle.size = Vector2(width, 42)
+	auto_toggle.text = "AUTO / %s" % ("ON" if game.auto_mode else "OFF")
+	auto_toggle.position = origin + Vector2(width + gap, 0)
+	auto_toggle.size = Vector2(width, 42)
+	hud_toggle.text = "HUD / %s" % ("ON" if game.hud_enabled else "OFF")
+	hud_toggle.position = origin + Vector2((width + gap) * 2, 0)
+	hud_toggle.size = Vector2(width, 42)
 
 func draw_options_page(rect: Rect2) -> void:
-	centered("ROUND OPTIONS", rect.position.y + 76, 31)
-	centered("ROUND AND PLAYER SETTINGS", rect.position.y + 105, 14, ACCENT)
-	centered("Bot names shuffle without repeats. Choose your name and color.", rect.position.y + 154, 16, MUTED)
-	label_at("BOT COUNT", rect.position + Vector2(38, 202), 15, MUTED)
-	label_at("ARENA SIZE", rect.position + Vector2(291, 202), 15, MUTED)
-	bot_selector.position = rect.position + Vector2(38, 214)
+	centered("ROUND OPTIONS", rect.position.y + 64, 31)
+	centered("ROUND AND PLAYER SETTINGS", rect.position.y + 94, 14, ACCENT)
+	centered("Choose your name, color, and pipe pattern.", rect.position.y + 130, 16, MUTED)
+	label_at("BOT COUNT", rect.position + Vector2(38, 170), 15, MUTED)
+	label_at("ARENA SIZE", rect.position + Vector2(291, 170), 15, MUTED)
+	bot_selector.position = rect.position + Vector2(38, 182)
 	bot_selector.size = Vector2(231, 46)
 	bot_selector.select(bot_selector.get_item_index(game.bot_count))
-	size_selector.position = rect.position + Vector2(291, 214)
+	size_selector.position = rect.position + Vector2(291, 182)
 	size_selector.size = Vector2(231, 46)
 	size_selector.select(size_selector.get_item_index(game.arena_width))
-	label_at("PIPE NAME", rect.position + Vector2(38, 274), 15, MUTED)
-	label_at("PIPE COLOR", rect.position + Vector2(378, 274), 15, MUTED)
+	label_at("PIPE NAME", rect.position + Vector2(38, 253), 15, MUTED)
 	if not player_name_entry.has_focus() and player_name_entry.text != game.player_name:
 		player_name_entry.text = game.player_name
-	player_name_entry.position = rect.position + Vector2(38, 286)
-	player_name_entry.size = Vector2(318, 46)
+	player_name_entry.position = rect.position + Vector2(38, 265)
+	player_name_entry.size = Vector2(484, 46)
+	label_at("PIPE COLOR", rect.position + Vector2(38, 337), 15, MUTED)
+	label_at("PIPE PATTERN", rect.position + Vector2(291, 337), 15, MUTED)
 	if player_color_picker.color != game.player_color:
 		player_color_picker.color = game.player_color
-	player_color_picker.position = rect.position + Vector2(378, 286)
-	player_color_picker.size = Vector2(144, 46)
+	player_color_picker.position = rect.position + Vector2(38, 349)
+	player_color_picker.size = Vector2(231, 46)
 	player_color_label.position = player_color_picker.position
 	player_color_label.size = player_color_picker.size
 	var label_color := Color("071d23") if game.player_color.get_luminance() > 0.48 else INK
 	player_color_label.add_theme_color_override("font_color", label_color)
+	pattern_selector.position = rect.position + Vector2(291, 349)
+	pattern_selector.size = Vector2(231, 46)
+	pattern_selector.select(pattern_selector.get_item_index(game.player_pattern))
+	pipe_preview.position = rect.position + Vector2(38, 411)
+	pipe_preview.size = Vector2(484, 96)
+	panel(Rect2(pipe_preview.position, pipe_preview.size), Color("162536"))
 	if not is_equal_approx(fov_slider.value, game.camera.base_fov):
 		fov_slider.set_value_no_signal(game.camera.base_fov)
-	label_at("FIELD OF VIEW", rect.position + Vector2(38, 352), 15, MUTED)
-	label_at("%d°" % roundi(fov_slider.value), rect.position + Vector2(466, 352), 15, ACCENT, true)
-	fov_slider.position = rect.position + Vector2(38, 358)
+	label_at("FIELD OF VIEW", rect.position + Vector2(38, 535), 15, MUTED)
+	label_at("%d°" % roundi(fov_slider.value), rect.position + Vector2(466, 535), 15, ACCENT, true)
+	fov_slider.position = rect.position + Vector2(38, 544)
 	fov_slider.size = Vector2(484, 22)
 	var rail_position := fov_slider.position + Vector2(8, 9)
 	var rail_width := fov_slider.size.x - 16
@@ -406,9 +479,9 @@ func draw_options_page(rect: Rect2) -> void:
 		draw_style_box(box(ACCENT.darkened(0.2), 3), Rect2(rail_position, Vector2(rail_width * progress, 4)))
 	options_back.visible = true
 	options_back.text = "DONE"
-	options_back.position = rect.position + Vector2(38, 396)
-	options_back.size = Vector2(484, 48)
-	centered("PLAYING AS %s  /  %d BOTS  /  %dm CUBE" % [game.player_name, game.bot_count, game.arena_width], rect.position.y + 484, 14, MUTED)
+	options_back.position = rect.position + Vector2(38, 584)
+	options_back.size = Vector2(484, 44)
+	centered("PLAYING AS %s  /  %d BOTS  /  %dm CUBE" % [game.player_name, game.bot_count, game.arena_width], rect.position.y + 650, 14, MUTED)
 
 func draw_menu_toggles(rect: Rect2, offset_y: float) -> void:
 	auto_toggle.text = "AUTO MODE  /  %s" % ("ON" if game.auto_mode else "OFF")
