@@ -105,9 +105,20 @@ func run() -> void:
 	check(not game.hud.bot_selector.visible and not game.hud.size_selector.visible, "Round setup controls are hidden on the main title page")
 	await click(game.hud.options_button)
 	await process_frame
-	check(game.hud.options_open and game.hud.bot_selector.visible and game.hud.size_selector.visible, "Game Options reveals bot and arena selectors")
+	check(game.hud.options_open and game.hud.bot_selector.visible and game.hud.size_selector.visible
+		and game.hud.player_name_entry.visible and game.hud.player_color_picker.visible,
+		"Game Options reveals round setup and player identity controls")
 	await capture("menu-options.png")
+	root.size = Vector2i(960, 600)
+	await create_timer(0.25).timeout
+	await capture("menu-options-small.png")
+	await click(game.hud.player_color_picker)
+	var color_picker: ColorPicker = game.hud.player_color_picker.get_picker()
+	check(color_picker.is_visible_in_tree(), "Player color control opens its picker")
+	root.size = Vector2i(1280, 800)
+	await create_timer(0.25).timeout
 	await choose(game.hud.bot_selector, 0)
+	check(not color_picker.is_visible_in_tree(), "Selecting another option closes the color picker")
 	check(game.bot_count == 7, "Mouse selects seven bots")
 	for index in [0, 2, 3, 1]:
 		await choose(game.hud.size_selector, index)
@@ -115,9 +126,23 @@ func run() -> void:
 		check(game.arena_width == width and game.sim.arena_width == width, "Mouse selects %d-unit arena" % width)
 		check(game.arena.width == width and game.camera.arena_width == width, "Geometry and camera use selected width")
 		await capture("menu-size-%d.png" % width)
+	var player_color := Color("ee5f83")
+	game.hud.player_name_entry.grab_focus()
+	game.hud.player_name_entry.text = "MATRIX"
+	game.hud.player_name_entry.emit_signal("text_changed", "MATRIX")
+	game.hud.player_color_picker.color = player_color
+	game.hud.player_color_picker.emit_signal("color_changed", player_color)
 	await click(game.hud.options_back)
 	await process_frame
 	check(not game.hud.options_open and not game.hud.bot_selector.visible, "Done returns to the uncluttered title page")
+	check(game.sim.rider_name(0) == "MATRIX" and game.sim.rider_color(0) == player_color,
+		"Done applies the player's name and color to their pipe")
+	check(game.pipes.markers[0].text == "MATRIX" and game.pipes.markers[0].modulate == player_color,
+		"Pipe marker reflects the selected player identity")
+	var player_pipe_material := game.pipes.batches[0][0].material_override as StandardMaterial3D
+	check(player_pipe_material.albedo_color == player_color
+		and game.pipes.inlet_materials[0].albedo_color == player_color,
+		"Selected color reaches the pipe trail and wall inlet")
 	await capture("menu-main.png")
 	await click(game.hud.primary)
 	check(game.state == "countdown", "Mouse starts the selected 60-unit arena")
@@ -150,7 +175,8 @@ func run() -> void:
 	await process_frame
 	await click(game.hud.secondary)
 	check(game.state == "ready", "Mouse Back to Title button works")
-	check(game.arena_width == 60 and game.bot_count == 7, "Settings survive returning to title")
+	check(game.arena_width == 60 and game.bot_count == 7 and game.sim.rider_name(0) == "MATRIX"
+		and game.sim.rider_color(0) == player_color, "Settings and player identity survive returning to title")
 	await capture("menu-small-window.png")
 	print("MENU POINTER CHECKS: %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

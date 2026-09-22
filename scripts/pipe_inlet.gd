@@ -3,7 +3,7 @@ extends RefCounted
 
 const Geometry = preload("res://scripts/pipe_geometry.gd")
 
-static func make(color: Color) -> Node3D:
+static func make(color: Color) -> Dictionary:
 	var inlet := Node3D.new()
 	var plate := BoxMesh.new()
 	plate.size = Vector3(2.2, 2.2, 0.16)
@@ -25,7 +25,7 @@ static func make(color: Color) -> Node3D:
 		for y in [-0.84, 0.84]:
 			var screw := attach(inlet, bolt, steel, Vector3(x, y, -0.21))
 			screw.rotation.x = PI * 0.5
-	return inlet
+	return {"node": inlet, "color_material": neck.material_override as StandardMaterial3D}
 
 static func attach(parent: Node3D, mesh: Mesh, material: Material, offset: Vector3) -> MeshInstance3D:
 	var instance := MeshInstance3D.new()

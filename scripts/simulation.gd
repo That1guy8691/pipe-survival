@@ -11,11 +11,27 @@ const MAX_BOTS := 31
 const Scoring = preload("res://scripts/scoring.gd")
 const COLORS := [Color("56eddf"), Color("ffb65a"), Color("aa8cff"),
 	Color("ff6e91"), Color("82df8b"), Color("62b4ff"), Color("eddf72"), Color("eaa4ec")]
-const NAMES := ["YOU", "COPPER", "VIOLET", "CORAL", "MOSS", "COBALT", "GOLD", "ORCHID"]
+const BOT_NAME_POOL := ["COPPER", "VIOLET", "CORAL", "MOSS", "COBALT", "GOLD", "ORCHID",
+	"BRASS", "RIVET", "GASKET", "WRENCH", "SPANNER", "BOLT", "NUTMEG", "VALVE",
+	"SPROCKET", "TURBINE", "FLUX", "STEAM", "HYDRO", "BRINE", "DRIP", "BUBBLES",
+	"WOBBLE", "ZIGZAG", "TINKER", "RUMBLE", "NIMBUS", "COMET", "PIXEL", "ECHO",
+	"NOVA", "ORBIT", "QUASAR", "SONIC", "ONYX", "AMBER", "OPAL", "QUARTZ", "RUBY",
+	"SAFFRON", "LUMEN", "SPARK", "DYNAMO", "NOODLE", "SCOOTER", "TANGO", "RASCAL",
+	"GIZMO", "WIDGET", "PIP", "TUBING", "JOINT", "MANIFOLD", "MENDER", "CIRCUIT",
+	"PLUMBUM", "TAPPER", "JUMPER", "PIVOT", "BOILER", "WAVE", "RIPPLE", "SPLASH",
+	"SQUIGGLE", "SWIRL", "GLITCH", "SCRAPPY", "ZEPHYR", "JUNO", "KELVIN", "MERCURY",
+	"TOOLBOX", "TWIST", "RATCHET", "FERRULE", "COUPLER", "BOUNCER", "PULSE", "TITAN",
+	"BLIP", "CORKSCREW", "FUSE", "TORQUE", "MIST", "SOLDER", "WELDER", "PIPELINE",
+	"GUTTER", "DRAIN", "NOZZLE", "HOPPER", "RADIATOR", "SPRINKLER", "JET", "SEAM",
+	"SLEEVE", "FLANGE", "THREAD", "TRICKLE"]
 const AXES := [Vector3i.RIGHT, Vector3i.LEFT, Vector3i.UP, Vector3i.DOWN,
 	Vector3i.FORWARD, Vector3i.BACK]
 
 var riders: Array[Dictionary] = []
+var player_name := "YOU"
+var player_color := Color("56eddf")
+var bot_name_bag: Array[String] = []
+var recent_bot_names: Array[String] = []
 var occupied: Dictionary = {}
 var rng := RandomNumberGenerator.new()
 var ticks := 0
@@ -27,8 +43,13 @@ var cell_count := DEFAULT_SIZE
 var arena_width: float:
 	get: return cell_count * SPACING
 
-func reset(seed_value: int = 0, bot_count: int = DEFAULT_BOTS, width: int = 60) -> void:
+func reset(seed_value: int = 0, bot_count: int = DEFAULT_BOTS, width: int = 60,
+		new_player_name: String = "YOU", new_player_color: Color = Color("56eddf")) -> void:
 	cell_count = clampi(int(width / SPACING), 20, 50)
+	player_name = new_player_name.strip_edges().left(18)
+	if player_name.is_empty():
+		player_name = "YOU"
+	player_color = new_player_color
 	if seed_value == 0:
 		rng.randomize()
 	else:
@@ -40,6 +61,7 @@ func reset(seed_value: int = 0, bot_count: int = DEFAULT_BOTS, width: int = 60) 
 	winner = -1
 	elapsed_time = 0.0
 	var spawns := spawn_cells(clampi(bot_count, 1, MAX_BOTS) + 1)
+	var round_names: Array[String] = [player_name]
 	for i in range(spawns.size()):
 		var cell := spawns[i]
 		var forward := inlet_direction(cell)
@@ -48,7 +70,9 @@ func reset(seed_value: int = 0, bot_count: int = DEFAULT_BOTS, width: int = 60) 
 			"source_cell": cell, "source_forward": forward,
 			"alive": true, "length": 0, "death_tick": -1, "cause": "",
 			"score": 0, "survival_time": 0.0, "orb_count": 0, "eliminations": 0,
-			"pressure": 1.0, "boosting": false, "boost_locked": false})
+			"pressure": 1.0, "boosting": false, "boost_locked": false,
+			"name": _next_bot_name(round_names) if i > 0 else player_name,
+			"color": color_for(i) if i > 0 else player_color})
 		occupied[cell] = i
 	scoring.reset(self)
 	# A visible, reachable first pickup teaches collection without a new tutorial.
@@ -60,8 +84,42 @@ func reset(seed_value: int = 0, bot_count: int = DEFAULT_BOTS, width: int = 60) 
 static func color_for(index: int) -> Color:
 	return COLORS[index] if index < COLORS.size() else Color.from_hsv(fmod(index * 0.618034, 1.0), 0.48, 0.98)
 
-static func name_for(index: int) -> String:
-	return NAMES[index] if index < NAMES.size() else "PIPE %02d" % (index + 1)
+func rider_color(index: int) -> Color:
+	return riders[index].color
+
+func rider_name(index: int) -> String:
+	return str(riders[index].name)
+
+func _name_is_taken(candidate: String, names: Array[String]) -> bool:
+	for name in names:
+		if candidate.to_lower() == name.to_lower():
+			return true
+	return false
+
+func _fill_bot_name_bag(excluded: Array[String]) -> void:
+	bot_name_bag.clear()
+	for name in BOT_NAME_POOL:
+		if not _name_is_taken(name, recent_bot_names) and not _name_is_taken(name, excluded):
+			bot_name_bag.append(name)
+	if bot_name_bag.is_empty():
+		for name in BOT_NAME_POOL:
+			if not _name_is_taken(name, excluded):
+				bot_name_bag.append(name)
+	bot_name_bag.shuffle()
+
+func _next_bot_name(excluded: Array[String]) -> String:
+	if bot_name_bag.is_empty():
+		_fill_bot_name_bag(excluded)
+	var selected: String = bot_name_bag.pop_back()
+	while _name_is_taken(selected, excluded):
+		if bot_name_bag.is_empty():
+			_fill_bot_name_bag(excluded)
+		selected = bot_name_bag.pop_back()
+	excluded.append(selected)
+	recent_bot_names.append(selected)
+	if recent_bot_names.size() > MAX_BOTS:
+		recent_bot_names.pop_front()
+	return selected
 
 func spawn_cells(count: int) -> Array[Vector3i]:
 	# Wall inlets replace floating starts; spread them across all six faces.

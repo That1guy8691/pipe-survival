@@ -2,10 +2,10 @@ extends Control
 
 signal primary_clicked
 signal secondary_clicked
-const Rules = preload("res://scripts/simulation.gd")
 const INK := Color("e8f2f5")
 const MUTED := Color("8da4b8")
 const ACCENT := Color("56eddf")
+const PLAYER_COLOR := Color("56eddf")
 var game: Node
 var font := SystemFont.new()
 var mono := SystemFont.new()
@@ -15,6 +15,9 @@ var options_button := Button.new()
 var options_back := Button.new()
 var bot_selector := OptionButton.new()
 var size_selector := OptionButton.new()
+var player_name_entry := LineEdit.new()
+var player_color_picker := ColorPickerButton.new()
+var player_color_label := Label.new()
 var auto_toggle := Button.new()
 var hud_toggle := Button.new()
 var options_open := false
@@ -42,7 +45,7 @@ func _ready() -> void:
 	options_button.text = "GAME OPTIONS"
 	options_button.pressed.connect(func(): options_open = true)
 	options_back.text = "DONE"
-	options_back.pressed.connect(func(): options_open = false)
+	options_back.pressed.connect(finish_options)
 	auto_toggle.toggle_mode = true
 	auto_toggle.add_theme_color_override("font_color", MUTED)
 	auto_toggle.add_theme_color_override("font_pressed_color", Color("071d23"))
@@ -93,12 +96,52 @@ func _ready() -> void:
 	size_selector.item_selected.connect(func(index: int):
 		game.arena_width = size_selector.get_item_id(index)
 		game.show_title())
+	add_child(player_name_entry)
+	player_name_entry.max_length = 18
+	player_name_entry.placeholder_text = "Enter a name"
+	player_name_entry.add_theme_font_override("font", font)
+	player_name_entry.add_theme_font_size_override("font_size", 18)
+	player_name_entry.add_theme_color_override("font_color", INK)
+	player_name_entry.add_theme_color_override("font_placeholder_color", MUTED)
+	player_name_entry.add_theme_stylebox_override("normal", box(Color("23384d"), 7))
+	player_name_entry.add_theme_stylebox_override("focus", box(Color("30485c"), 7))
+	player_name_entry.text = "YOU"
+	player_name_entry.text_changed.connect(func(value: String): game.player_name = clean_player_name(value))
+	add_child(player_color_picker)
+	player_color_picker.color = PLAYER_COLOR
+	player_color_picker.edit_alpha = false
+	player_color_picker.tooltip_text = "Choose the color for your pipe"
+	player_color_picker.focus_mode = Control.FOCUS_NONE
+	player_color_picker.add_theme_stylebox_override("normal", box(PLAYER_COLOR, 7))
+	player_color_picker.add_theme_stylebox_override("hover", box(PLAYER_COLOR.lightened(0.2), 7))
+	player_color_picker.color_changed.connect(func(value: Color): game.player_color = value)
+	add_child(player_color_label)
+	player_color_label.text = "CHANGE COLOR"
+	player_color_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	player_color_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	player_color_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	player_color_label.add_theme_font_override("font", font)
+	player_color_label.add_theme_font_size_override("font_size", 16)
 
 static func box(color: Color, radius: int = 12) -> StyleBoxFlat:
 	var style := StyleBoxFlat.new()
 	style.bg_color = color
 	style.set_corner_radius_all(radius)
 	return style
+
+static func clean_player_name(value: String) -> String:
+	var cleaned := value.strip_edges().left(18)
+	return "YOU" if cleaned.is_empty() else cleaned
+
+func finish_options() -> void:
+	if game == null:
+		options_open = false
+		return
+	game.player_name = clean_player_name(player_name_entry.text)
+	game.player_color = player_color_picker.color
+	player_name_entry.release_focus()
+	options_open = false
+	game.show_title()
 
 func label_at(text: String, location: Vector2, size_value: int = 18, color: Color = INK, numeric: bool = false) -> void:
 	draw_string(mono if numeric else font, location, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_value, color)
@@ -120,6 +163,9 @@ func _process(_delta: float) -> void:
 		options_back.visible = game.state == "ready" and options_open
 		bot_selector.visible = game.state == "ready" and options_open
 		size_selector.visible = game.state == "ready" and options_open
+		player_name_entry.visible = game.state == "ready" and options_open
+		player_color_picker.visible = game.state == "ready" and options_open
+		player_color_label.visible = game.state == "ready" and options_open
 		auto_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
 		auto_toggle.set_pressed_no_signal(game.auto_mode)
 		hud_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
@@ -143,10 +189,10 @@ func _draw() -> void:
 	panel(Rect2(size.x / 2.0 - 186, 24, 372, 88))
 	var following: bool = game.auto_mode or not sim.riders[0].alive
 	centered("AUTO MODE / FOLLOWING" if game.auto_mode else ("SPECTATING" if following else "YOUR PIPE"), 53, 16, MUTED)
-	centered(Rules.name_for(game.watch_id if following else 0), 89, 28, Rules.color_for(game.watch_id if following else 0))
+	centered(game.sim.rider_name(game.watch_id if following else 0), 89, 28, game.sim.rider_color(game.watch_id if following else 0))
 	draw_leaderboard(focus_id)
 	panel(Rect2(24, size.y - 192, 252, 136))
-	label_at(Rules.name_for(focus_id) + " / SCORE" if game.auto_mode else "YOUR SCORE", Vector2(44, size.y - 161), 17, MUTED)
+	label_at(game.sim.rider_name(focus_id) + " / SCORE" if game.auto_mode else "YOUR SCORE", Vector2(44, size.y - 161), 17, MUTED)
 	label_at(str(focus_rider.score), Vector2(43, size.y - 112), 44, Color("ffdb77"), true)
 	label_at("%d ORBS / %d ELIMINATIONS" % [focus_rider.orb_count, focus_rider.eliminations], Vector2(44, size.y - 77), 15, MUTED)
 	draw_boost(focus_rider)
@@ -176,11 +222,12 @@ func draw_leaderboard(focus_id: int) -> void:
 		var i: int = shown[row]
 		var y := 88.0 + row * 35.0
 		var alive: bool = game.sim.riders[i].alive
-		var color: Color = Rules.color_for(i) if alive else Rules.color_for(i).darkened(0.45)
+		var rider_color: Color = game.sim.rider_color(i)
+		var color: Color = rider_color if alive else rider_color.darkened(0.45)
 		if i == focus_id:
 			draw_style_box(box(Color("203b4a"), 5), Rect2(x + 10, y - 23, 236, 31))
 		draw_circle(Vector2(x + 23, y - 6), 4.5, color)
-		label_at("%02d %s" % [ranking.find(i) + 1, Rules.name_for(i)], Vector2(x + 36, y), 17, color)
+		label_at("%02d %s" % [ranking.find(i) + 1, game.sim.rider_name(i)], Vector2(x + 36, y), 17, color)
 		var score := str(game.sim.riders[i].score)
 		var width := mono.get_string_size(score, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
 		label_at(score, Vector2(x + 235 - width, y), 18, INK if i == focus_id else MUTED, true)
@@ -230,7 +277,7 @@ func draw_play_messages() -> void:
 		centered("R to restart / Tab to follow survivors", h - 174, 17, MUTED)
 	if game.state == "countdown":
 		centered(str(ceili(game.countdown)), h / 2.0 + 25, 88, ACCENT)
-		centered("AUTO MODE  /  SIT BACK AND WATCH" if game.auto_mode else "YOUR PIPE IS CYAN  /  GET READY", h / 2.0 + 68, 17)
+		centered("AUTO MODE  /  SIT BACK AND WATCH" if game.auto_mode else "YOUR PIPE  /  GET READY", h / 2.0 + 68, 17)
 
 func draw_overlay() -> void:
 	var w := size.x
@@ -252,7 +299,7 @@ func draw_overlay() -> void:
 	if game.state == "paused":
 		if game.auto_mode:
 			lines = ["Every pipe steers and boosts automatically.", "Follow a pipe: Tab / Shift+Tab",
-				"Change camera: C", "Take control of your cyan pipe: F",
+				"Change camera: C", "Take control of your pipe: F",
 				"Overview: right-drag to orbit / scroll to zoom", "Toggle HUD and labels: H"]
 		else:
 			lines = ["Pitch: W / S or Up / Down", "Turn: A / D or Left / Right",
@@ -260,8 +307,8 @@ func draw_overlay() -> void:
 				"Overview: right-drag to orbit / scroll to zoom", "Toggle HUD and labels: H"]
 	elif game.state == "finished":
 		var winner: int = game.sim.winner
-		title = "YOU OUTLASTED THEM" if winner == 0 else "ROUND OVER"
-		subtitle = "NO SURVIVORS" if winner < 0 else Rules.name_for(winner) + " IS THE LAST PIPE STANDING"
+		title = "ROUND WON" if winner == 0 else "ROUND OVER"
+		subtitle = "NO SURVIVORS" if winner < 0 else game.sim.rider_name(winner) + " IS THE LAST PIPE STANDING"
 		var secs := int(game.sim.elapsed_time)
 		lines = ["Round lasted %d:%02d" % [secs / 60, secs % 60],
 			"Your score: %d" % int(game.sim.riders[0].score),
@@ -306,8 +353,8 @@ func draw_title_page(rect: Rect2) -> void:
 
 func draw_options_page(rect: Rect2) -> void:
 	centered("ROUND OPTIONS", rect.position.y + 76, 31)
-	centered("OPPONENTS AND ARENA SIZE", rect.position.y + 105, 14, ACCENT)
-	centered("More pipes mean more traffic; larger cubes add room.", rect.position.y + 154, 16, MUTED)
+	centered("ROUND AND PLAYER SETTINGS", rect.position.y + 105, 14, ACCENT)
+	centered("Bot names shuffle without repeats. Choose your name and color.", rect.position.y + 154, 16, MUTED)
 	label_at("BOT COUNT", rect.position + Vector2(38, 202), 15, MUTED)
 	label_at("ARENA SIZE", rect.position + Vector2(291, 202), 15, MUTED)
 	bot_selector.position = rect.position + Vector2(38, 214)
@@ -316,11 +363,25 @@ func draw_options_page(rect: Rect2) -> void:
 	size_selector.position = rect.position + Vector2(291, 214)
 	size_selector.size = Vector2(231, 46)
 	size_selector.select(size_selector.get_item_index(game.arena_width))
+	label_at("PIPE NAME", rect.position + Vector2(38, 286), 15, MUTED)
+	label_at("PIPE COLOR", rect.position + Vector2(378, 286), 15, MUTED)
+	if not player_name_entry.has_focus() and player_name_entry.text != game.player_name:
+		player_name_entry.text = game.player_name
+	player_name_entry.position = rect.position + Vector2(38, 298)
+	player_name_entry.size = Vector2(318, 46)
+	if player_color_picker.color != game.player_color:
+		player_color_picker.color = game.player_color
+	player_color_picker.position = rect.position + Vector2(378, 298)
+	player_color_picker.size = Vector2(144, 46)
+	player_color_label.position = player_color_picker.position
+	player_color_label.size = player_color_picker.size
+	var label_color := Color("071d23") if game.player_color.get_luminance() > 0.48 else INK
+	player_color_label.add_theme_color_override("font_color", label_color)
 	options_back.visible = true
 	options_back.text = "DONE"
-	options_back.position = rect.position + Vector2(38, 324)
+	options_back.position = rect.position + Vector2(38, 372)
 	options_back.size = Vector2(484, 48)
-	centered("Current setup  /  %d bots  /  %dm cube" % [game.bot_count, game.arena_width], rect.position.y + 484, 14, MUTED)
+	centered("PLAYING AS %s  /  %d BOTS  /  %dm CUBE" % [game.player_name, game.bot_count, game.arena_width], rect.position.y + 484, 14, MUTED)
 
 func draw_menu_toggles(rect: Rect2, offset_y: float) -> void:
 	auto_toggle.text = "AUTO MODE  /  %s" % ("ON" if game.auto_mode else "OFF")

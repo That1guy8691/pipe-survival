@@ -17,6 +17,8 @@ var state := "ready"
 var countdown := 3.0
 var bot_count := Rules.DEFAULT_BOTS
 var arena_width := 60
+var player_name := "YOU"
+var player_color := Color("56eddf")
 var arena: Node3D
 var turn_queue: Array[String]:
 	get: return motion.turn_queue
@@ -60,7 +62,7 @@ func _ready() -> void:
 		add_child(driver)
 
 func reset_world(seed_value: int = 0) -> void:
-	sim.reset(seed_value, bot_count, arena_width)
+	sim.reset(seed_value, bot_count, arena_width, player_name, player_color)
 	if not is_instance_valid(arena) or arena.width != sim.arena_width:
 		if is_instance_valid(arena):
 			remove_child(arena)

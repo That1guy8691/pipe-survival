@@ -13,15 +13,19 @@ var markers: Array[Label3D] = []
 var active_materials: Array[ShaderMaterial] = []
 var plans: Array[Dictionary] = []
 var inlets: Array[Node3D] = []
+var inlet_materials: Array[StandardMaterial3D] = []
 
 func _ready() -> void:
 	meshes = [Geometry.make_tube(false), Geometry.make_tube(true)]
 
 func ensure_count(total: int) -> void:
 	for i in range(batches.size(), total):
-		var inlet := Inlet.make(Rules.color_for(i))
+		var pipe_color: Color = model.rider_color(i)
+		var inlet_data: Dictionary = Inlet.make(pipe_color)
+		var inlet: Node3D = inlet_data.node
 		add_child(inlet)
 		inlets.append(inlet)
+		inlet_materials.append(inlet_data.color_material)
 		var per_rider: Array[MultiMeshInstance3D] = []
 		for kind in range(2):
 			var batch := MultiMeshInstance3D.new()
@@ -30,13 +34,13 @@ func ensure_count(total: int) -> void:
 			batch.multimesh.mesh = meshes[kind]
 			batch.multimesh.instance_count = 256
 			batch.multimesh.visible_instance_count = 0
-			batch.material_override = Geometry.material(Rules.color_for(i))
+			batch.material_override = Geometry.material(pipe_color)
 			add_child(batch)
 			per_rider.append(batch)
 		batches.append(per_rider)
 		counts.append([0, 0])
 		var moving := MeshInstance3D.new()
-		var material := Geometry.growing_material(Rules.color_for(i))
+		var material := Geometry.growing_material(pipe_color)
 		moving.material_override = material
 		add_child(moving)
 		active.append(moving)
@@ -48,17 +52,17 @@ func ensure_count(total: int) -> void:
 		sphere.radial_segments = 16
 		sphere.rings = 8
 		head.mesh = sphere
-		var head_material := Geometry.material(Rules.color_for(i).lightened(0.25))
-		head_material.emission = Rules.color_for(i) * 0.5
+		var head_material := Geometry.material(pipe_color.lightened(0.25))
+		head_material.emission = pipe_color * 0.5
 		head.material_override = head_material
 		add_child(head)
 		heads.append(head)
 		var marker := Label3D.new()
-		marker.text = Rules.name_for(i)
+		marker.text = model.rider_name(i)
 		marker.font_size = 38 if i == 0 else 28
 		marker.pixel_size = 0.014
 		marker.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		marker.modulate = Rules.color_for(i)
+		marker.modulate = pipe_color
 		marker.outline_size = 10
 		marker.no_depth_test = i == 0
 		add_child(marker)
@@ -78,6 +82,19 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 	for i in range(total):
 		plans.append({})
 		var rider: Dictionary = model.riders[i]
+		var pipe_color: Color = model.rider_color(i)
+		for batch: MultiMeshInstance3D in batches[i]:
+			var material := batch.material_override as StandardMaterial3D
+			material.albedo_color = pipe_color
+			material.emission = pipe_color * 0.13
+		inlet_materials[i].albedo_color = pipe_color
+		inlet_materials[i].emission = pipe_color * 0.13
+		active_materials[i].set_shader_parameter("pipe_color", pipe_color)
+		var head_material := heads[i].material_override as StandardMaterial3D
+		head_material.albedo_color = pipe_color.lightened(0.25)
+		head_material.emission = pipe_color * 0.5
+		markers[i].text = model.rider_name(i)
+		markers[i].modulate = pipe_color
 		var forward: Vector3i = rider.source_forward
 		inlets[i].transform = Transform3D(Geometry.orientation(forward, forward),
 			model.world(rider.source_cell) - Vector3(forward) * Rules.SPACING * 0.5)

@@ -32,6 +32,35 @@ func _initialize() -> void:
 	var sim = Rules.new()
 	sim.reset(1, 7)
 	check(sim.riders.size() == 8 and sim.occupied.size() == 8, "Eight unique spawn cells")
+	var player_color := Color("f05f7f")
+	sim.reset(31, 31, 100, "Copper", player_color)
+	check(sim.rider_name(0) == "Copper" and sim.rider_color(0) == player_color,
+		"Player-selected identity is applied to the player pipe")
+	var first_bot_names: Array[String] = []
+	var first_name_set: Dictionary = {}
+	var player_name_reused := false
+	for i in range(1, sim.riders.size()):
+		var bot_name: String = sim.rider_name(i)
+		first_bot_names.append(bot_name)
+		first_name_set[bot_name] = true
+		player_name_reused = player_name_reused or bot_name.to_lower() == "copper"
+	check(first_bot_names.size() == 31 and first_name_set.size() == 31,
+		"All 31 bots receive distinct names from the name pool")
+	check(not player_name_reused, "A bot name cannot duplicate the player's name")
+	sim.reset(32, 31, 100, "Copper", player_color)
+	var next_bot_names: Array[String] = []
+	var next_name_set: Dictionary = {}
+	for i in range(1, sim.riders.size()):
+		var bot_name: String = sim.rider_name(i)
+		next_bot_names.append(bot_name)
+		next_name_set[bot_name] = true
+	var repeated_names := false
+	for name in next_bot_names:
+		if name in first_bot_names:
+			repeated_names = true
+	check(next_name_set.size() == 31 and not repeated_names,
+		"Bot names stay unique and avoid the previous round's names")
+	sim.reset(33, 7, 60, "Copper", player_color)
 	check(sim.world(Vector3i.ZERO) == Vector3(-29, -29, -29), "Grid fits inside 60-unit cube")
 	check(not sim.inside(Vector3i(30, 4, 4)), "Positive wall bound")
 	check(not sim.inside(Vector3i(4, -1, 4)), "Negative wall bound")
