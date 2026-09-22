@@ -102,6 +102,11 @@ func run() -> void:
 	check(game.state == "countdown", "Mouse release starts the round")
 	game.show_title()
 	await process_frame
+	check(not game.hud.bot_selector.visible and not game.hud.size_selector.visible, "Round setup controls are hidden on the main title page")
+	await click(game.hud.options_button)
+	await process_frame
+	check(game.hud.options_open and game.hud.bot_selector.visible and game.hud.size_selector.visible, "Game Options reveals bot and arena selectors")
+	await capture("menu-options.png")
 	await choose(game.hud.bot_selector, 0)
 	check(game.bot_count == 7, "Mouse selects seven bots")
 	for index in [0, 2, 3, 1]:
@@ -110,22 +115,25 @@ func run() -> void:
 		check(game.arena_width == width and game.sim.arena_width == width, "Mouse selects %d-unit arena" % width)
 		check(game.arena.width == width and game.camera.arena_width == width, "Geometry and camera use selected width")
 		await capture("menu-size-%d.png" % width)
-		if width == 100:
-			await click(game.hud.primary)
-			check(game.state == "countdown", "Mouse starts the selected 100-unit arena")
-			game.countdown = 0.01
-			await create_timer(0.1).timeout
-			game.motion.autoplay = true
-			for step in range(60):
-				game.motion.advance(game.Rules.STEP_TIME)
-			key(KEY_C)
-			key(KEY_C)
-			await create_timer(0.5).timeout
-			await capture("arena-100-play.png")
-			key(KEY_ESCAPE)
-			await process_frame
-			await click(game.hud.secondary)
-			check(game.state == "ready" and game.arena_width == 100, "Back to Title keeps the largest arena setting")
+	await click(game.hud.options_back)
+	await process_frame
+	check(not game.hud.options_open and not game.hud.bot_selector.visible, "Done returns to the uncluttered title page")
+	await capture("menu-main.png")
+	await click(game.hud.primary)
+	check(game.state == "countdown", "Mouse starts the selected 60-unit arena")
+	game.countdown = 0.01
+	await create_timer(0.1).timeout
+	game.motion.autoplay = true
+	for step in range(60):
+		game.motion.advance(game.Rules.STEP_TIME)
+	key(KEY_C)
+	key(KEY_C)
+	await create_timer(0.5).timeout
+	await capture("arena-60-play.png")
+	key(KEY_ESCAPE)
+	await process_frame
+	await click(game.hud.secondary)
+	check(game.state == "ready" and game.arena_width == 60, "Back to Title keeps the selected arena setting")
 	root.size = Vector2i(960, 600)
 	await create_timer(0.25).timeout
 	await click(game.hud.primary)
@@ -135,6 +143,7 @@ func run() -> void:
 	key(KEY_ESCAPE)
 	await process_frame
 	check(game.state == "paused", "Pause menu opens")
+	await capture("pause-controls.png")
 	await click(game.hud.primary)
 	check(game.state == "playing", "Mouse Resume button works")
 	key(KEY_ESCAPE)

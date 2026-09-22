@@ -11,17 +11,20 @@ var font := SystemFont.new()
 var mono := SystemFont.new()
 var primary := Button.new()
 var secondary := Button.new()
+var options_button := Button.new()
+var options_back := Button.new()
 var bot_selector := OptionButton.new()
 var size_selector := OptionButton.new()
 var auto_toggle := Button.new()
 var hud_toggle := Button.new()
+var options_open := false
 
 func _ready() -> void:
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	font.font_names = PackedStringArray(["Bahnschrift", "Segoe UI"])
 	mono.font_names = PackedStringArray(["Consolas"])
-	for button in [primary, secondary, auto_toggle, hud_toggle]:
+	for button in [primary, secondary, options_button, options_back, auto_toggle, hud_toggle]:
 		add_child(button)
 		button.focus_mode = Control.FOCUS_NONE
 		button.add_theme_font_override("font", font)
@@ -32,9 +35,14 @@ func _ready() -> void:
 		button.add_theme_stylebox_override("pressed", box(ACCENT.darkened(0.15), 9))
 	primary.pressed.connect(func(): primary_clicked.emit())
 	secondary.pressed.connect(func(): secondary_clicked.emit())
-	secondary.add_theme_color_override("font_color", MUTED)
-	secondary.add_theme_stylebox_override("normal", box(Color("162536"), 9))
-	secondary.add_theme_stylebox_override("hover", box(Color("23384d"), 9))
+	for button in [secondary, options_button, options_back]:
+		button.add_theme_color_override("font_color", MUTED)
+		button.add_theme_stylebox_override("normal", box(Color("162536"), 9))
+		button.add_theme_stylebox_override("hover", box(Color("23384d"), 9))
+	options_button.text = "GAME OPTIONS"
+	options_button.pressed.connect(func(): options_open = true)
+	options_back.text = "DONE"
+	options_back.pressed.connect(func(): options_open = false)
 	auto_toggle.toggle_mode = true
 	auto_toggle.add_theme_color_override("font_color", MUTED)
 	auto_toggle.add_theme_color_override("font_pressed_color", Color("071d23"))
@@ -56,8 +64,14 @@ func _ready() -> void:
 	bot_selector.focus_mode = Control.FOCUS_NONE
 	bot_selector.add_theme_font_override("font", font)
 	bot_selector.add_theme_font_size_override("font_size", 18)
-	bot_selector.add_theme_stylebox_override("normal", box(Color("23384d"), 7))
-	bot_selector.add_theme_stylebox_override("hover", box(Color("30485c"), 7))
+	var selector_normal := box(Color("23384d"), 7)
+	selector_normal.content_margin_left = 12
+	selector_normal.content_margin_right = 10
+	var selector_hover := box(Color("30485c"), 7)
+	selector_hover.content_margin_left = 12
+	selector_hover.content_margin_right = 10
+	bot_selector.add_theme_stylebox_override("normal", selector_normal)
+	bot_selector.add_theme_stylebox_override("hover", selector_hover)
 	bot_selector.item_selected.connect(func(index: int):
 		game.bot_count = bot_selector.get_item_id(index)
 		game.show_title())
@@ -68,8 +82,14 @@ func _ready() -> void:
 	size_selector.focus_mode = Control.FOCUS_NONE
 	size_selector.add_theme_font_override("font", font)
 	size_selector.add_theme_font_size_override("font_size", 18)
-	size_selector.add_theme_stylebox_override("normal", box(Color("23384d"), 7))
-	size_selector.add_theme_stylebox_override("hover", box(Color("30485c"), 7))
+	var size_selector_normal := box(Color("23384d"), 7)
+	size_selector_normal.content_margin_left = 12
+	size_selector_normal.content_margin_right = 10
+	var size_selector_hover := box(Color("30485c"), 7)
+	size_selector_hover.content_margin_left = 12
+	size_selector_hover.content_margin_right = 10
+	size_selector.add_theme_stylebox_override("normal", size_selector_normal)
+	size_selector.add_theme_stylebox_override("hover", size_selector_hover)
 	size_selector.item_selected.connect(func(index: int):
 		game.arena_width = size_selector.get_item_id(index)
 		game.show_title())
@@ -92,13 +112,17 @@ func panel(rect: Rect2, color: Color = Color(0.025, 0.055, 0.095, 0.9)) -> void:
 
 func _process(_delta: float) -> void:
 	if game != null:
-		primary.visible = game.state in ["ready", "paused", "finished"]
+		if game.state != "ready":
+			options_open = false
+		primary.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
 		secondary.visible = game.state == "paused"
-		bot_selector.visible = game.state == "ready"
-		size_selector.visible = game.state == "ready"
-		auto_toggle.visible = game.state in ["ready", "paused", "finished"]
+		options_button.visible = game.state == "ready" and not options_open
+		options_back.visible = game.state == "ready" and options_open
+		bot_selector.visible = game.state == "ready" and options_open
+		size_selector.visible = game.state == "ready" and options_open
+		auto_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
 		auto_toggle.set_pressed_no_signal(game.auto_mode)
-		hud_toggle.visible = game.state in ["ready", "paused", "finished"]
+		hud_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
 		hud_toggle.set_pressed_no_signal(game.hud_enabled)
 	queue_redraw()
 
@@ -126,7 +150,6 @@ func _draw() -> void:
 	label_at(str(focus_rider.score), Vector2(43, size.y - 112), 44, Color("ffdb77"), true)
 	label_at("%d ORBS / %d ELIMINATIONS" % [focus_rider.orb_count, focus_rider.eliminations], Vector2(44, size.y - 77), 15, MUTED)
 	draw_boost(focus_rider)
-	draw_controls()
 	draw_play_messages()
 
 func leaderboard_ids(focus_id: int) -> Array:
@@ -185,18 +208,6 @@ func draw_boost(rider: Dictionary) -> void:
 	label_at(boost_status(rider), Vector2(x + 20, y + 94), 19, color)
 	label_at("AI CONTROLS BOOST" if game.auto_mode else "HOLD SHIFT TO BOOST", Vector2(x + 20, y + 119), 14, MUTED)
 
-func draw_controls() -> void:
-	centered("C / " + game.camera.view_name(), size.y - 110, 18, ACCENT)
-	if game.camera.overview:
-		centered("Drag right mouse to orbit / Scroll to zoom", size.y - 84, 15, MUTED)
-	var controls := "WASD / ARROWS Turn     SHIFT Boost     C View     F Auto     H Hide HUD     ESC Pause"
-	if game.auto_mode:
-		controls = "TAB / SHIFT+TAB Follow pipe     C View     F Manual     H Hide HUD     ESC Pause"
-	elif not game.sim.riders[0].alive:
-		controls = "TAB / SHIFT+TAB Follow pipe     C View     F Auto     H Hide HUD     R Restart     ESC Pause"
-	panel(Rect2(24, size.y - 43, size.x - 48, 33))
-	centered(controls, size.y - 20, 16, MUTED)
-
 func draw_play_messages() -> void:
 	var sim = game.sim
 	var h := size.y
@@ -225,69 +236,96 @@ func draw_overlay() -> void:
 	var w := size.x
 	var h := size.y
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.005, 0.012, 0.025, 0.5))
-	var rect := Rect2(w / 2 - 280, h / 2 - 280, 560, 560)
+	var rect := Rect2(w / 2 - 280, h / 2 - 260, 560, 520)
 	panel(rect, Color("0d1b2b"))
 	draw_rect(Rect2(rect.position + Vector2(25, 0), Vector2(510, 3)), ACCENT)
-	var title := "BUILD THE MAZE."
-	var subtitle := "SURVIVE WHAT YOU LEAVE BEHIND."
-	var lines := ["You vs %d bots. Last pipe alive wins." % game.bot_count,
-		"Collect gold orbs. Cut off other pipes.",
-		"+25 / orb   +1 / second   +100 / elimination",
-		"Win for +250. Every pipe stays after a crash."]
-	var action := "ENTER  /  START ROUND"
-	if game.auto_mode:
-		lines[0] = "All %d pipes play themselves. Last pipe alive wins." % (game.bot_count + 1)
-		lines[3] = "New rounds start automatically. F to take control."
-		action = "ENTER  /  WATCH AUTO MODE"
+	if game.state == "ready":
+		if options_open:
+			draw_options_page(rect)
+		else:
+			draw_title_page(rect)
+		return
+	var title := "PAUSED"
+	var subtitle := "AUTO MODE CONTROLS" if game.auto_mode else "CONTROLS"
+	var lines: Array[String] = []
+	var action := "ESC  /  RESUME"
 	if game.state == "paused":
-		title = "TAKE A BREATHER."
-		subtitle = "ROUND PAUSED"
-		lines = ["W / S or arrows: pitch up / down", "A / D or arrows: turn left / right",
-			"Shift: boost   |   C: cycle all three views", "H: hide HUD and labels / Press H again to restore"]
 		if game.auto_mode:
-			lines = ["All pipes steer and boost automatically.", "C: change view   |   Tab: follow another pipe",
-				"H: hide HUD and labels / Press H again to restore", "F: switch to manual control of the cyan pipe"]
-		action = "ESC  /  RESUME"
+			lines = ["Every pipe steers and boosts automatically.", "Follow a pipe: Tab / Shift+Tab",
+				"Change camera: C", "Take control of your cyan pipe: F",
+				"Overview: right-drag to orbit / scroll to zoom", "Toggle HUD and labels: H"]
+		else:
+			lines = ["Pitch: W / S or Up / Down", "Turn: A / D or Left / Right",
+				"Boost: hold Shift", "Change camera: C",
+				"Overview: right-drag to orbit / scroll to zoom", "Toggle HUD and labels: H"]
 	elif game.state == "finished":
 		var winner: int = game.sim.winner
-		title = "YOU OUTLASTED THEM." if winner == 0 else "ROUND OVER."
+		title = "YOU OUTLASTED THEM" if winner == 0 else "ROUND OVER"
 		subtitle = "NO SURVIVORS" if winner < 0 else Rules.name_for(winner) + " IS THE LAST PIPE STANDING"
 		var secs := int(game.sim.elapsed_time)
 		lines = ["Round lasted %d:%02d" % [secs / 60, secs % 60],
 			"Your score: %d" % int(game.sim.riders[0].score),
-			"%d orbs collected / %d eliminations" % [game.sim.riders[0].orb_count, game.sim.riders[0].eliminations],
-			"Find a route. Leave yourself an exit."]
+			"%d orbs collected / %d eliminations" % [game.sim.riders[0].orb_count, game.sim.riders[0].eliminations]]
 		if game.auto_mode:
-			lines[3] = "Next round in %d seconds. F stops Auto Mode." % ceili(game.auto_restart_left)
+			lines.append("Next round in %d seconds." % ceili(game.auto_restart_left))
 		action = "ENTER  /  PLAY AGAIN"
-	centered(title, rect.position.y + 63, 33)
-	centered(subtitle, rect.position.y + 91, 13, ACCENT)
+	centered(title, rect.position.y + 72, 33)
+	centered(subtitle, rect.position.y + 102, 14, ACCENT)
 	for i in range(lines.size()):
-		centered(lines[i], rect.position.y + 139 + i * 27, 18, MUTED)
-	if game.state == "ready":
-		label_at("OPPONENTS", rect.position + Vector2(40, 246), 15, MUTED)
-		label_at("ARENA SIZE", rect.position + Vector2(293, 246), 15, MUTED)
-		bot_selector.position = rect.position + Vector2(38, 258)
-		bot_selector.size = Vector2(231, 42)
-		bot_selector.select(bot_selector.get_item_index(game.bot_count))
-		size_selector.position = rect.position + Vector2(291, 258)
-		size_selector.size = Vector2(231, 42)
-		size_selector.select(size_selector.get_item_index(game.arena_width))
-		centered("C: VIEW   /   TAB: FOLLOW PIPE   /   H: HIDE HUD" if game.auto_mode else "WASD: TURN   /   SHIFT: BOOST   /   H: HIDE HUD", rect.position.y + 379, 14, INK)
-	auto_toggle.text = "AUTO / %s   [F]" % ("ON" if game.auto_mode else "OFF")
-	auto_toggle.position = rect.position + Vector2(38, 312)
-	auto_toggle.size = Vector2(231, 42)
-	hud_toggle.text = "HUD / %s   [H]" % ("ON" if game.hud_enabled else "OFF")
-	hud_toggle.position = rect.position + Vector2(291, 312)
-	hud_toggle.size = Vector2(231, 42)
+		centered(lines[i], rect.position.y + 149 + i * 27, 17, MUTED)
+	draw_menu_toggles(rect, 300)
 	primary.visible = true
 	primary.text = action
-	primary.position = rect.position + Vector2(38, 397)
+	primary.position = rect.position + Vector2(38, 365)
 	primary.size = Vector2(484, 52)
 	if game.state == "paused":
 		secondary.visible = true
 		secondary.text = "BACK TO TITLE"
-		secondary.position = rect.position + Vector2(38, 463)
-		secondary.size = Vector2(484, 39)
-	else:
-		centered("%dm CUBE    /    %d PIPES    /    THREE CAMERA VIEWS" % [int(game.sim.arena_width), game.bot_count + 1], rect.position.y + 515, 12, MUTED)
+		secondary.position = rect.position + Vector2(38, 430)
+		secondary.size = Vector2(484, 42)
+
+func draw_title_page(rect: Rect2) -> void:
+	centered("PIPE / SURVIVAL", rect.position.y + 74, 32)
+	centered("SURVIVAL IN A GROWING 3D PIPE MAZE", rect.position.y + 104, 14, ACCENT)
+	var lines := ["Steer through the cube; the trail you leave stays behind.",
+		"Orbs +25  /  survival +1 per second  /  eliminations +100.",
+		"Crash into walls or trails and you're out. Last pipe wins.",
+		"Press Esc during a round to pause and see the controls."]
+	for i in range(lines.size()):
+		centered(lines[i], rect.position.y + 151 + i * 27, 17, MUTED)
+	draw_menu_toggles(rect, 270)
+	options_button.visible = true
+	options_button.text = "GAME OPTIONS"
+	options_button.position = rect.position + Vector2(38, 330)
+	options_button.size = Vector2(484, 43)
+	primary.visible = true
+	primary.text = "ENTER  /  WATCH AUTO MODE" if game.auto_mode else "ENTER  /  START ROUND"
+	primary.position = rect.position + Vector2(38, 389)
+	primary.size = Vector2(484, 52)
+	centered("YOU + %d BOTS    /    %dM CUBE" % [game.bot_count, game.arena_width], rect.position.y + 486, 14, MUTED)
+
+func draw_options_page(rect: Rect2) -> void:
+	centered("ROUND OPTIONS", rect.position.y + 76, 31)
+	centered("OPPONENTS AND ARENA SIZE", rect.position.y + 105, 14, ACCENT)
+	centered("More pipes mean more traffic; larger cubes add room.", rect.position.y + 154, 16, MUTED)
+	label_at("BOT COUNT", rect.position + Vector2(38, 202), 15, MUTED)
+	label_at("ARENA SIZE", rect.position + Vector2(291, 202), 15, MUTED)
+	bot_selector.position = rect.position + Vector2(38, 214)
+	bot_selector.size = Vector2(231, 46)
+	bot_selector.select(bot_selector.get_item_index(game.bot_count))
+	size_selector.position = rect.position + Vector2(291, 214)
+	size_selector.size = Vector2(231, 46)
+	size_selector.select(size_selector.get_item_index(game.arena_width))
+	options_back.visible = true
+	options_back.text = "DONE"
+	options_back.position = rect.position + Vector2(38, 324)
+	options_back.size = Vector2(484, 48)
+	centered("Current setup  /  %d bots  /  %dm cube" % [game.bot_count, game.arena_width], rect.position.y + 484, 14, MUTED)
+
+func draw_menu_toggles(rect: Rect2, offset_y: float) -> void:
+	auto_toggle.text = "AUTO MODE  /  %s" % ("ON" if game.auto_mode else "OFF")
+	auto_toggle.position = rect.position + Vector2(38, offset_y)
+	auto_toggle.size = Vector2(231, 42)
+	hud_toggle.text = "HUD  /  %s" % ("ON" if game.hud_enabled else "OFF")
+	hud_toggle.position = rect.position + Vector2(291, offset_y)
+	hud_toggle.size = Vector2(231, 42)
