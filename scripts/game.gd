@@ -37,6 +37,8 @@ var camera_up_held := false
 var camera_down_held := false
 var score_message := ""
 var score_message_time := 0.0
+var fov_message_time := 0.0
+var fov_message := ""
 
 func _ready() -> void:
 	DisplayServer.window_set_min_size(Vector2i(960, 600))
@@ -92,6 +94,7 @@ func reset_world(seed_value: int = 0) -> void:
 	camera_down_held = false
 	watch_id = 0
 	score_message_time = 0.0
+	fov_message_time = 0.0
 	auto_restart_left = 5.0
 	orbit_idle = 0.0
 	camera.initialized = false
@@ -189,6 +192,7 @@ func on_completed(moves: Array[Dictionary]) -> void:
 		auto_restart_left = 5.0
 
 func _process(delta: float) -> void:
+	fov_message_time = maxf(0.0, fov_message_time - delta)
 	if camera.view == CameraRig.View.RING:
 		var orbit_axis := float(camera_right_held) - float(camera_left_held)
 		var look_axis := float(camera_up_held) - float(camera_down_held)
@@ -249,7 +253,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				sim.riders[0].boost_locked = false
 		if not event.pressed or event.echo:
 			return
-		if key == KEY_ENTER or key == KEY_KP_ENTER:
+		if key == KEY_Q and state in ["playing", "countdown", "paused", "finished"]:
+			adjust_camera_fov(-2.0)
+		elif key == KEY_E and state in ["playing", "countdown", "paused", "finished"]:
+			adjust_camera_fov(2.0)
+		elif key == KEY_ENTER or key == KEY_KP_ENTER:
 			primary_action()
 		elif key == KEY_ESCAPE:
 			toggle_pause()
@@ -284,3 +292,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			camera.zoom(-3.0)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			camera.zoom(3.0)
+
+func adjust_camera_fov(change: float) -> void:
+	camera.set_base_fov(camera.base_fov + change)
+	fov_message = "FOV / %d°" % roundi(camera.base_fov)
+	fov_message_time = 1.5

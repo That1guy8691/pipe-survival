@@ -15,6 +15,7 @@ var options_button := Button.new()
 var options_back := Button.new()
 var bot_selector := OptionButton.new()
 var size_selector := OptionButton.new()
+var fov_slider := HSlider.new()
 var player_name_entry := LineEdit.new()
 var player_color_picker := ColorPickerButton.new()
 var player_color_label := Label.new()
@@ -96,6 +97,17 @@ func _ready() -> void:
 	size_selector.item_selected.connect(func(index: int):
 		game.arena_width = size_selector.get_item_id(index)
 		game.show_title())
+	add_child(fov_slider)
+	fov_slider.min_value = 60.0
+	fov_slider.max_value = 110.0
+	fov_slider.step = 1.0
+	fov_slider.value = 78.0
+	fov_slider.focus_mode = Control.FOCUS_NONE
+	fov_slider.tooltip_text = "Adjust the camera field of view"
+	fov_slider.add_theme_stylebox_override("slider", StyleBoxEmpty.new())
+	fov_slider.add_theme_stylebox_override("grabber_area", StyleBoxEmpty.new())
+	fov_slider.add_theme_stylebox_override("grabber_area_highlight", StyleBoxEmpty.new())
+	fov_slider.value_changed.connect(func(value: float): game.camera.set_base_fov(value))
 	add_child(player_name_entry)
 	player_name_entry.max_length = 18
 	player_name_entry.placeholder_text = "Enter a name"
@@ -163,6 +175,7 @@ func _process(_delta: float) -> void:
 		options_back.visible = game.state == "ready" and options_open
 		bot_selector.visible = game.state == "ready" and options_open
 		size_selector.visible = game.state == "ready" and options_open
+		fov_slider.visible = game.state == "ready" and options_open
 		player_name_entry.visible = game.state == "ready" and options_open
 		player_color_picker.visible = game.state == "ready" and options_open
 		player_color_label.visible = game.state == "ready" and options_open
@@ -271,6 +284,8 @@ func draw_play_messages() -> void:
 			centered("BLOCKED AHEAD / TURN", 148, 22, Color("ffb65a"))
 		if game.score_message_time > 0.0 and not game.auto_mode:
 			centered(game.score_message, h / 2.0 + 65, 20, Color("ffdb77"))
+	if game.fov_message_time > 0.0:
+		centered(game.fov_message, h / 2.0 - 68, 17, ACCENT)
 	if game.state == "playing" and not sim.riders[0].alive and not game.auto_mode:
 		panel(Rect2(size.x / 2 - 228, h - 230, 456, 76))
 		centered("PIPE LOST / " + str(sim.riders[0].cause).to_upper(), h - 201, 20, Color("ffb65a"))
@@ -299,12 +314,12 @@ func draw_overlay() -> void:
 	if game.state == "paused":
 		if game.auto_mode:
 			lines = ["Every pipe steers and boosts automatically.", "Follow a pipe: Tab / Shift+Tab",
-				"Change camera: C / take control: F", "Ring view: hold Left / Right to orbit",
-				"Ring view: Up / Down to aim", "Overview: mouse orbit / wheel zoom / HUD: H"]
+				"Camera: C / FOV: Q / E / take control: F", "Ring view: arrow keys orbit / aim",
+				"Overview: mouse orbit / wheel zoom", "Hide HUD: H"]
 		else:
-			lines = ["Pitch: W / S", "Turn: A / D", "Boost: hold Shift",
-				"Ring view: hold Left / Right to orbit", "Ring view: Up / Down to aim",
-				"Camera: C / overview mouse orbit / HUD: H"]
+			lines = ["Pitch: W / S    Turn: A / D", "Boost: hold Shift", "FOV: Q / E",
+				"Camera: C", "Ring view: arrow keys orbit / aim",
+				"Overview: mouse orbit / wheel zoom    HUD: H"]
 	elif game.state == "finished":
 		var winner: int = game.sim.winner
 		title = "ROUND WON" if winner == 0 else "ROUND OVER"
@@ -363,23 +378,35 @@ func draw_options_page(rect: Rect2) -> void:
 	size_selector.position = rect.position + Vector2(291, 214)
 	size_selector.size = Vector2(231, 46)
 	size_selector.select(size_selector.get_item_index(game.arena_width))
-	label_at("PIPE NAME", rect.position + Vector2(38, 286), 15, MUTED)
-	label_at("PIPE COLOR", rect.position + Vector2(378, 286), 15, MUTED)
+	label_at("PIPE NAME", rect.position + Vector2(38, 274), 15, MUTED)
+	label_at("PIPE COLOR", rect.position + Vector2(378, 274), 15, MUTED)
 	if not player_name_entry.has_focus() and player_name_entry.text != game.player_name:
 		player_name_entry.text = game.player_name
-	player_name_entry.position = rect.position + Vector2(38, 298)
+	player_name_entry.position = rect.position + Vector2(38, 286)
 	player_name_entry.size = Vector2(318, 46)
 	if player_color_picker.color != game.player_color:
 		player_color_picker.color = game.player_color
-	player_color_picker.position = rect.position + Vector2(378, 298)
+	player_color_picker.position = rect.position + Vector2(378, 286)
 	player_color_picker.size = Vector2(144, 46)
 	player_color_label.position = player_color_picker.position
 	player_color_label.size = player_color_picker.size
 	var label_color := Color("071d23") if game.player_color.get_luminance() > 0.48 else INK
 	player_color_label.add_theme_color_override("font_color", label_color)
+	if not is_equal_approx(fov_slider.value, game.camera.base_fov):
+		fov_slider.set_value_no_signal(game.camera.base_fov)
+	label_at("FIELD OF VIEW", rect.position + Vector2(38, 352), 15, MUTED)
+	label_at("%d°" % roundi(fov_slider.value), rect.position + Vector2(466, 352), 15, ACCENT, true)
+	fov_slider.position = rect.position + Vector2(38, 358)
+	fov_slider.size = Vector2(484, 22)
+	var rail_position := fov_slider.position + Vector2(8, 9)
+	var rail_width := fov_slider.size.x - 16
+	draw_style_box(box(Color("23384d"), 3), Rect2(rail_position, Vector2(rail_width, 4)))
+	var progress := (fov_slider.value - fov_slider.min_value) / (fov_slider.max_value - fov_slider.min_value)
+	if progress > 0.0:
+		draw_style_box(box(ACCENT.darkened(0.2), 3), Rect2(rail_position, Vector2(rail_width * progress, 4)))
 	options_back.visible = true
 	options_back.text = "DONE"
-	options_back.position = rect.position + Vector2(38, 372)
+	options_back.position = rect.position + Vector2(38, 396)
 	options_back.size = Vector2(484, 48)
 	centered("PLAYING AS %s  /  %d BOTS  /  %dm CUBE" % [game.player_name, game.bot_count, game.arena_width], rect.position.y + 484, 14, MUTED)
 

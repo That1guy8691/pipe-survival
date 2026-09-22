@@ -30,6 +30,12 @@ func run() -> void:
 	game.countdown = 0.01
 	await create_timer(0.5).timeout
 	check(game.state == "playing" and game.sim.riders[0].length > 0, "Cyan pipe advances without player input")
+	var original_fov: float = game.camera.base_fov
+	key(KEY_Q)
+	check(is_equal_approx(game.camera.base_fov, original_fov - 2.0) and game.fov_message_time > 0.0,
+		"Q decreases live FOV and displays the new value")
+	key(KEY_E)
+	check(is_equal_approx(game.camera.base_fov, original_fov), "E increases live FOV back to its previous value")
 	key(KEY_W)
 	check(game.turn_queue.is_empty(), "Manual steering cannot interfere with Auto Mode")
 	var overview_yaw: float = game.camera.yaw
@@ -105,7 +111,7 @@ func run() -> void:
 	check(game.arena_width == 40 and game.bot_count == 7, "Auto Mode preserves map and bot choices")
 	game.set_auto_mode(false)
 	game.start_round(822)
-	check(game.camera.view == game.camera.View.RING, "Manual rounds start with the pipe-ring camera")
+	check(game.camera.view == game.camera.View.CHASE, "Manual rounds start with the familiar chase camera")
 	game.set_auto_mode(true)
 
 	# A real AI round, advanced without wall-clock waits or altered rules.

@@ -1,15 +1,18 @@
 extends Camera3D
 
 const Rules = preload("res://scripts/simulation.gd")
+const MIN_FOV := 60.0
+const MAX_FOV := 110.0
 
-enum View { RING, CHASE, FIRST_PERSON, OVERVIEW }
-var view: View = View.RING
+enum View { CHASE, FIRST_PERSON, OVERVIEW, RING }
+var view: View = View.CHASE
 var overview: bool:
 	get: return view == View.OVERVIEW
-	set(value): view = View.OVERVIEW if value else View.RING
+	set(value): view = View.OVERVIEW if value else View.CHASE
 var first_person: bool:
 	get: return view == View.FIRST_PERSON
 var boosting := false
+var base_fov := 78.0
 var yaw := 0.67
 var pitch := 0.43
 var ring_angle := PI * 0.5
@@ -35,12 +38,15 @@ func set_arena_size(width: float) -> void:
 	far = width * 5.5
 	initialized = false
 
+func set_base_fov(value: float) -> void:
+	base_fov = clampf(value, MIN_FOV, MAX_FOV)
+
 func toggle() -> void:
 	view = (view + 1) % 4 as View
 	initialized = false
 
 func view_name() -> String:
-	return ["PIPE RING", "CHASE CAMERA", "FIRST PERSON", "OVERVIEW"][view]
+	return ["CHASE CAMERA", "FIRST PERSON", "OVERVIEW", "PIPE RING"][view]
 
 func orbit(relative: Vector2) -> void:
 	if overview:
@@ -104,6 +110,9 @@ func follow(pose: Dictionary, delta: float, force_overview: bool = false) -> voi
 	quaternion = target_basis.get_rotation_quaternion() if first_person and not force_overview else quaternion.slerp(target_basis.get_rotation_quaternion(), weight)
 	# Boost can widen first-person FOV as a speed cue, but must never zoom the
 	# arena while following a pipe from chase or overview.
-	var target_fov := (92.0 if boosting else 84.0) if first_person else 78.0
+	var target_fov := base_fov
+	if first_person:
+		target_fov += 6.0 + (8.0 if boosting else 0.0)
+	target_fov = minf(target_fov, 120.0)
 	fov = lerpf(fov, target_fov, weight)
 	initialized = true

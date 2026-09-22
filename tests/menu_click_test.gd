@@ -106,8 +106,8 @@ func run() -> void:
 	await click(game.hud.options_button)
 	await process_frame
 	check(game.hud.options_open and game.hud.bot_selector.visible and game.hud.size_selector.visible
-		and game.hud.player_name_entry.visible and game.hud.player_color_picker.visible,
-		"Game Options reveals round setup and player identity controls")
+		and game.hud.player_name_entry.visible and game.hud.player_color_picker.visible and game.hud.fov_slider.visible,
+		"Game Options reveals round setup, player identity, and FOV controls")
 	await capture("menu-options.png")
 	root.size = Vector2i(960, 600)
 	await create_timer(0.25).timeout
@@ -132,11 +132,17 @@ func run() -> void:
 	game.hud.player_name_entry.emit_signal("text_changed", "MATRIX")
 	game.hud.player_color_picker.color = player_color
 	game.hud.player_color_picker.emit_signal("color_changed", player_color)
+	var original_fov: float = game.camera.base_fov
+	await click(game.hud.fov_slider)
+	var selected_fov: float = game.camera.base_fov
+	check(not is_equal_approx(selected_fov, original_fov) and is_equal_approx(game.hud.fov_slider.value, selected_fov),
+		"Mouse adjusts the FOV slider and camera setting together")
 	await click(game.hud.options_back)
 	await process_frame
 	check(not game.hud.options_open and not game.hud.bot_selector.visible, "Done returns to the uncluttered title page")
-	check(game.sim.rider_name(0) == "MATRIX" and game.sim.rider_color(0) == player_color,
-		"Done applies the player's name and color to their pipe")
+	check(game.sim.rider_name(0) == "MATRIX" and game.sim.rider_color(0) == player_color
+		and is_equal_approx(game.camera.base_fov, selected_fov),
+		"Done applies player identity and retains the selected FOV")
 	check(game.pipes.markers[0].text == "MATRIX" and game.pipes.markers[0].modulate == player_color,
 		"Pipe marker reflects the selected player identity")
 	var player_pipe_material := game.pipes.batches[0][0].material_override as StandardMaterial3D
@@ -151,7 +157,6 @@ func run() -> void:
 	game.motion.autoplay = true
 	for step in range(60):
 		game.motion.advance(game.Rules.STEP_TIME)
-	key(KEY_C)
 	key(KEY_C)
 	key(KEY_C)
 	await create_timer(0.5).timeout
@@ -177,7 +182,8 @@ func run() -> void:
 	await click(game.hud.secondary)
 	check(game.state == "ready", "Mouse Back to Title button works")
 	check(game.arena_width == 60 and game.bot_count == 7 and game.sim.rider_name(0) == "MATRIX"
-		and game.sim.rider_color(0) == player_color, "Settings and player identity survive returning to title")
+		and game.sim.rider_color(0) == player_color and is_equal_approx(game.camera.base_fov, selected_fov),
+		"Settings, identity, and FOV survive returning to title")
 	await capture("menu-small-window.png")
 	print("MENU POINTER CHECKS: %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

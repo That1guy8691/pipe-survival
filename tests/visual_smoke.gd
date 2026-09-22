@@ -50,12 +50,9 @@ func _ready() -> void:
 	await get_tree().process_frame
 	require(game.state == "countdown", "Enter starts a round")
 	require(game.sim.occupied.size() == 16, "Start clears the title maze")
-	require(game.camera.view == game.camera.View.RING, "Manual rounds start with the pipe-ring camera")
+	require(game.camera.view == game.camera.View.CHASE, "Manual rounds start with the familiar chase camera")
 	game.countdown = 0.03
 	await wait_seconds(0.45)
-	key(KEY_C)
-	await get_tree().process_frame
-	require(game.camera.view == game.camera.View.CHASE, "C switches from the pipe ring to chase")
 	key(KEY_C)
 	await get_tree().process_frame
 	require(game.camera.first_person, "C switches chase to first person")
@@ -133,7 +130,7 @@ func _ready() -> void:
 	game.countdown = 0.01
 	await wait_seconds(0.05)
 	# Let an unsteered player reach a wall through the real frame loop.
-	await wait_seconds(game.sim.arena_width / game.Rules.SPEED + 1.0)
+	await wait_seconds(game.sim.arena_width * 2.0 / game.Rules.SPEED + 2.0)
 	require(not game.sim.riders[0].alive, "Player can die naturally")
 	require(game.camera.overview, "Death switches to spectator overview")
 	key(KEY_TAB)
