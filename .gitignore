@@ -1,0 +1,7 @@
+.godot/
+build/
+
+# Keep video and capture exports out of the source repository.
+*.mp4
+*.mov
+*.mkv

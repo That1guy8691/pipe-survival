@@ -1,0 +1,70 @@
+name: Build and publish browser game
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Godot 4.7 and web export templates
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="4.7"
+          release="${version}-stable"
+          base="https://github.com/godotengine/godot/releases/download/${release}"
+          temp="${RUNNER_TEMP}/godot-${version}"
+          mkdir -p "$temp" "$HOME/.local/share/godot/export_templates/${version}.stable"
+          curl --fail --location --retry 3 \
+            "${base}/Godot_v${release}_linux.x86_64.zip" \
+            --output "$temp/godot.zip"
+          unzip -q "$temp/godot.zip" -d "$temp"
+          curl --fail --location --retry 3 \
+            "${base}/Godot_v${release}_export_templates.tpz" \
+            --output "$temp/templates.tpz"
+          unzip -q "$temp/templates.tpz" -d "$temp/templates"
+          cp -a "$temp/templates/templates/." \
+            "$HOME/.local/share/godot/export_templates/${version}.stable/"
+          echo "GODOT_BIN=$temp/Godot_v${release}_linux.x86_64" >> "$GITHUB_ENV"
+          chmod +x "$temp/Godot_v${release}_linux.x86_64"
+
+      - name: Import and export web build
+        run: |
+          "$GODOT_BIN" --headless --editor --path . --import --quit
+          mkdir -p _site
+          "$GODOT_BIN" --headless --path . --export-release "Web" _site/index.html
+          touch _site/.nojekyll
+
+      - name: Set up Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload browser build
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Publish to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

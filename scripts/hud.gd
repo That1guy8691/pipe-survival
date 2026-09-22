@@ -1,0 +1,293 @@
+extends Control
+
+signal primary_clicked
+signal secondary_clicked
+const Rules = preload("res://scripts/simulation.gd")
+const INK := Color("e8f2f5")
+const MUTED := Color("8da4b8")
+const ACCENT := Color("56eddf")
+var game: Node
+var font := SystemFont.new()
+var mono := SystemFont.new()
+var primary := Button.new()
+var secondary := Button.new()
+var bot_selector := OptionButton.new()
+var size_selector := OptionButton.new()
+var auto_toggle := Button.new()
+var hud_toggle := Button.new()
+
+func _ready() -> void:
+	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	mouse_filter = Control.MOUSE_FILTER_IGNORE
+	font.font_names = PackedStringArray(["Bahnschrift", "Segoe UI"])
+	mono.font_names = PackedStringArray(["Consolas"])
+	for button in [primary, secondary, auto_toggle, hud_toggle]:
+		add_child(button)
+		button.focus_mode = Control.FOCUS_NONE
+		button.add_theme_font_override("font", font)
+		button.add_theme_font_size_override("font_size", 20)
+		button.add_theme_color_override("font_color", Color("071d23"))
+		button.add_theme_stylebox_override("normal", box(ACCENT, 9))
+		button.add_theme_stylebox_override("hover", box(ACCENT.lightened(0.2), 9))
+		button.add_theme_stylebox_override("pressed", box(ACCENT.darkened(0.15), 9))
+	primary.pressed.connect(func(): primary_clicked.emit())
+	secondary.pressed.connect(func(): secondary_clicked.emit())
+	secondary.add_theme_color_override("font_color", MUTED)
+	secondary.add_theme_stylebox_override("normal", box(Color("162536"), 9))
+	secondary.add_theme_stylebox_override("hover", box(Color("23384d"), 9))
+	auto_toggle.toggle_mode = true
+	auto_toggle.add_theme_color_override("font_color", MUTED)
+	auto_toggle.add_theme_color_override("font_pressed_color", Color("071d23"))
+	auto_toggle.add_theme_stylebox_override("normal", box(Color("23384d"), 9))
+	auto_toggle.add_theme_stylebox_override("hover", box(Color("30485c"), 9))
+	auto_toggle.toggled.connect(func(enabled: bool): game.set_auto_mode(enabled))
+	hud_toggle.toggle_mode = true
+	hud_toggle.add_theme_color_override("font_color", MUTED)
+	hud_toggle.add_theme_color_override("font_pressed_color", Color("071d23"))
+	hud_toggle.add_theme_stylebox_override("normal", box(Color("23384d"), 9))
+	hud_toggle.add_theme_stylebox_override("hover", box(Color("30485c"), 9))
+	hud_toggle.toggled.connect(func(enabled: bool): game.set_hud_enabled(enabled))
+	for toggle in [auto_toggle, hud_toggle]:
+		toggle.add_theme_font_size_override("font_size", 18)
+	add_child(bot_selector)
+	for count in [7, 15, 23, 31]:
+		bot_selector.add_item("%d BOTS" % count, count)
+	bot_selector.select(1)
+	bot_selector.focus_mode = Control.FOCUS_NONE
+	bot_selector.add_theme_font_override("font", font)
+	bot_selector.add_theme_font_size_override("font_size", 18)
+	bot_selector.add_theme_stylebox_override("normal", box(Color("23384d"), 7))
+	bot_selector.add_theme_stylebox_override("hover", box(Color("30485c"), 7))
+	bot_selector.item_selected.connect(func(index: int):
+		game.bot_count = bot_selector.get_item_id(index)
+		game.show_title())
+	add_child(size_selector)
+	for width in [40, 60, 80, 100]:
+		size_selector.add_item("%d x %d x %d" % [width, width, width], width)
+	size_selector.select(1)
+	size_selector.focus_mode = Control.FOCUS_NONE
+	size_selector.add_theme_font_override("font", font)
+	size_selector.add_theme_font_size_override("font_size", 18)
+	size_selector.add_theme_stylebox_override("normal", box(Color("23384d"), 7))
+	size_selector.add_theme_stylebox_override("hover", box(Color("30485c"), 7))
+	size_selector.item_selected.connect(func(index: int):
+		game.arena_width = size_selector.get_item_id(index)
+		game.show_title())
+
+static func box(color: Color, radius: int = 12) -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = color
+	style.set_corner_radius_all(radius)
+	return style
+
+func label_at(text: String, location: Vector2, size_value: int = 18, color: Color = INK, numeric: bool = false) -> void:
+	draw_string(mono if numeric else font, location, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_value, color)
+
+func centered(text: String, y: float, size_value: int, color: Color = INK) -> void:
+	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_value).x
+	label_at(text, Vector2((size.x - width) / 2.0, y), size_value, color)
+
+func panel(rect: Rect2, color: Color = Color(0.025, 0.055, 0.095, 0.9)) -> void:
+	draw_style_box(box(color), rect)
+
+func _process(_delta: float) -> void:
+	if game != null:
+		primary.visible = game.state in ["ready", "paused", "finished"]
+		secondary.visible = game.state == "paused"
+		bot_selector.visible = game.state == "ready"
+		size_selector.visible = game.state == "ready"
+		auto_toggle.visible = game.state in ["ready", "paused", "finished"]
+		auto_toggle.set_pressed_no_signal(game.auto_mode)
+		hud_toggle.visible = game.state in ["ready", "paused", "finished"]
+		hud_toggle.set_pressed_no_signal(game.hud_enabled)
+	queue_redraw()
+
+func _draw() -> void:
+	if game == null or game.sim.riders.is_empty():
+		return
+	if game.state in ["ready", "paused", "finished"]:
+		draw_overlay()
+		return
+	var sim = game.sim
+	var focus_id: int = game.watch_id if game.auto_mode else 0
+	var focus_rider: Dictionary = sim.riders[focus_id]
+	panel(Rect2(24, 24, 252, 140))
+	label_at("PIPE / SURVIVAL", Vector2(44, 53), 18, ACCENT)
+	label_at("%d / %d ALIVE" % [sim.alive_ids().size(), sim.riders.size()], Vector2(43, 97), 32)
+	var seconds := int(sim.elapsed_time)
+	label_at("ROUND  %02d:%02d" % [seconds / 60, seconds % 60], Vector2(44, 139), 21, MUTED, true)
+	panel(Rect2(size.x / 2.0 - 186, 24, 372, 88))
+	var following: bool = game.auto_mode or not sim.riders[0].alive
+	centered("AUTO MODE / FOLLOWING" if game.auto_mode else ("SPECTATING" if following else "YOUR PIPE"), 53, 16, MUTED)
+	centered(Rules.name_for(game.watch_id if following else 0), 89, 28, Rules.color_for(game.watch_id if following else 0))
+	draw_leaderboard(focus_id)
+	panel(Rect2(24, size.y - 192, 252, 136))
+	label_at(Rules.name_for(focus_id) + " / SCORE" if game.auto_mode else "YOUR SCORE", Vector2(44, size.y - 161), 17, MUTED)
+	label_at(str(focus_rider.score), Vector2(43, size.y - 112), 44, Color("ffdb77"), true)
+	label_at("%d ORBS / %d ELIMINATIONS" % [focus_rider.orb_count, focus_rider.eliminations], Vector2(44, size.y - 77), 15, MUTED)
+	draw_boost(focus_rider)
+	draw_controls()
+	draw_play_messages()
+
+func leaderboard_ids(focus_id: int) -> Array:
+	var sim = game.sim
+	var ranking: Array[int] = []
+	for i in range(sim.riders.size()):
+		ranking.append(i)
+	ranking.sort_custom(func(a: int, b: int):
+		return sim.riders[a].score > sim.riders[b].score if sim.riders[a].score != sim.riders[b].score else a < b)
+	var shown := ranking.slice(0, 3 if game.auto_mode else 5)
+	if focus_id not in shown:
+		shown[shown.size() - 1] = focus_id
+	return [ranking, shown]
+
+func draw_leaderboard(focus_id: int) -> void:
+	var lists := leaderboard_ids(focus_id)
+	var ranking: Array = lists[0]
+	var shown: Array = lists[1]
+	var x := size.x - 280
+	panel(Rect2(x, 24, 256, 58 + shown.size() * 35))
+	label_at("LEADERS", Vector2(x + 20, 56), 19)
+	label_at("SCORE", Vector2(x + 184, 56), 14, MUTED)
+	for row in range(shown.size()):
+		var i: int = shown[row]
+		var y := 88.0 + row * 35.0
+		var alive: bool = game.sim.riders[i].alive
+		var color: Color = Rules.color_for(i) if alive else Rules.color_for(i).darkened(0.45)
+		if i == focus_id:
+			draw_style_box(box(Color("203b4a"), 5), Rect2(x + 10, y - 23, 236, 31))
+		draw_circle(Vector2(x + 23, y - 6), 4.5, color)
+		label_at("%02d %s" % [ranking.find(i) + 1, Rules.name_for(i)], Vector2(x + 36, y), 17, color)
+		var score := str(game.sim.riders[i].score)
+		var width := mono.get_string_size(score, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
+		label_at(score, Vector2(x + 235 - width, y), 18, INK if i == focus_id else MUTED, true)
+
+func boost_status(rider: Dictionary) -> String:
+	if not rider.alive:
+		return "PIPE LOST"
+	if rider.boosting:
+		return "BOOSTING 2x"
+	if rider.boost_locked and game.boost_held and not game.auto_mode:
+		return "RELEASE SHIFT"
+	return "READY" if rider.pressure >= 0.999 else "RECHARGING"
+
+func draw_boost(rider: Dictionary) -> void:
+	var x := size.x - 316
+	var y := size.y - 192
+	var amount: float = rider.pressure
+	var color := Color("ffb65a") if rider.boosting else ACCENT
+	panel(Rect2(x, y, 292, 136))
+	label_at("AUTO BOOST" if game.auto_mode else "BOOST", Vector2(x + 20, y + 33), 23, INK)
+	label_at("%d%%" % roundi(amount * 100.0), Vector2(x + 206, y + 33), 24, color, true)
+	draw_style_box(box(Color("23384d"), 5), Rect2(x + 20, y + 52, 252, 14))
+	if amount > 0.0:
+		draw_style_box(box(color, 5), Rect2(x + 20, y + 52, 252 * amount, 14))
+	label_at(boost_status(rider), Vector2(x + 20, y + 94), 19, color)
+	label_at("AI CONTROLS BOOST" if game.auto_mode else "HOLD SHIFT TO BOOST", Vector2(x + 20, y + 119), 14, MUTED)
+
+func draw_controls() -> void:
+	centered("C / " + game.camera.view_name(), size.y - 110, 18, ACCENT)
+	if game.camera.overview:
+		centered("Drag right mouse to orbit / Scroll to zoom", size.y - 84, 15, MUTED)
+	var controls := "WASD / ARROWS Turn     SHIFT Boost     C View     F Auto     H Hide HUD     ESC Pause"
+	if game.auto_mode:
+		controls = "TAB / SHIFT+TAB Follow pipe     C View     F Manual     H Hide HUD     ESC Pause"
+	elif not game.sim.riders[0].alive:
+		controls = "TAB / SHIFT+TAB Follow pipe     C View     F Auto     H Hide HUD     R Restart     ESC Pause"
+	panel(Rect2(24, size.y - 43, size.x - 48, 33))
+	centered(controls, size.y - 20, 16, MUTED)
+
+func draw_play_messages() -> void:
+	var sim = game.sim
+	var h := size.y
+	if game.camera.first_person and game.state in ["playing", "countdown"]:
+		var center := size / 2.0
+		draw_circle(center, 2, Color(0.9, 1.0, 1.0, 0.8))
+		for direction in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
+			draw_line(center + direction * 8, center + direction * 14, Color(0.8, 1.0, 1.0, 0.65), 1.5)
+	if game.state == "playing" and sim.riders[0].alive:
+		var queued := " > ".join(game.turn_queue).to_upper()
+		if not queued.is_empty():
+			centered("QUEUED / " + queued, h - 161, 17, ACCENT)
+		if game.clearance <= 2 and not game.auto_mode:
+			centered("BLOCKED AHEAD / TURN", 148, 22, Color("ffb65a"))
+		if game.score_message_time > 0.0 and not game.auto_mode:
+			centered(game.score_message, h / 2.0 + 65, 20, Color("ffdb77"))
+	if game.state == "playing" and not sim.riders[0].alive and not game.auto_mode:
+		panel(Rect2(size.x / 2 - 228, h - 230, 456, 76))
+		centered("PIPE LOST / " + str(sim.riders[0].cause).to_upper(), h - 201, 20, Color("ffb65a"))
+		centered("R to restart / Tab to follow survivors", h - 174, 17, MUTED)
+	if game.state == "countdown":
+		centered(str(ceili(game.countdown)), h / 2.0 + 25, 88, ACCENT)
+		centered("AUTO MODE  /  SIT BACK AND WATCH" if game.auto_mode else "YOUR PIPE IS CYAN  /  GET READY", h / 2.0 + 68, 17)
+
+func draw_overlay() -> void:
+	var w := size.x
+	var h := size.y
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0.005, 0.012, 0.025, 0.5))
+	var rect := Rect2(w / 2 - 280, h / 2 - 280, 560, 560)
+	panel(rect, Color("0d1b2b"))
+	draw_rect(Rect2(rect.position + Vector2(25, 0), Vector2(510, 3)), ACCENT)
+	var title := "BUILD THE MAZE."
+	var subtitle := "SURVIVE WHAT YOU LEAVE BEHIND."
+	var lines := ["You vs %d bots. Last pipe alive wins." % game.bot_count,
+		"Collect gold orbs. Cut off other pipes.",
+		"+25 / orb   +1 / second   +100 / elimination",
+		"Win for +250. Every pipe stays after a crash."]
+	var action := "ENTER  /  START ROUND"
+	if game.auto_mode:
+		lines[0] = "All %d pipes play themselves. Last pipe alive wins." % (game.bot_count + 1)
+		lines[3] = "New rounds start automatically. F to take control."
+		action = "ENTER  /  WATCH AUTO MODE"
+	if game.state == "paused":
+		title = "TAKE A BREATHER."
+		subtitle = "ROUND PAUSED"
+		lines = ["W / S or arrows: pitch up / down", "A / D or arrows: turn left / right",
+			"Shift: boost   |   C: cycle all three views", "H: hide HUD and labels / Press H again to restore"]
+		if game.auto_mode:
+			lines = ["All pipes steer and boost automatically.", "C: change view   |   Tab: follow another pipe",
+				"H: hide HUD and labels / Press H again to restore", "F: switch to manual control of the cyan pipe"]
+		action = "ESC  /  RESUME"
+	elif game.state == "finished":
+		var winner: int = game.sim.winner
+		title = "YOU OUTLASTED THEM." if winner == 0 else "ROUND OVER."
+		subtitle = "NO SURVIVORS" if winner < 0 else Rules.name_for(winner) + " IS THE LAST PIPE STANDING"
+		var secs := int(game.sim.elapsed_time)
+		lines = ["Round lasted %d:%02d" % [secs / 60, secs % 60],
+			"Your score: %d" % int(game.sim.riders[0].score),
+			"%d orbs collected / %d eliminations" % [game.sim.riders[0].orb_count, game.sim.riders[0].eliminations],
+			"Find a route. Leave yourself an exit."]
+		if game.auto_mode:
+			lines[3] = "Next round in %d seconds. F stops Auto Mode." % ceili(game.auto_restart_left)
+		action = "ENTER  /  PLAY AGAIN"
+	centered(title, rect.position.y + 63, 33)
+	centered(subtitle, rect.position.y + 91, 13, ACCENT)
+	for i in range(lines.size()):
+		centered(lines[i], rect.position.y + 139 + i * 27, 18, MUTED)
+	if game.state == "ready":
+		label_at("OPPONENTS", rect.position + Vector2(40, 246), 15, MUTED)
+		label_at("ARENA SIZE", rect.position + Vector2(293, 246), 15, MUTED)
+		bot_selector.position = rect.position + Vector2(38, 258)
+		bot_selector.size = Vector2(231, 42)
+		bot_selector.select(bot_selector.get_item_index(game.bot_count))
+		size_selector.position = rect.position + Vector2(291, 258)
+		size_selector.size = Vector2(231, 42)
+		size_selector.select(size_selector.get_item_index(game.arena_width))
+		centered("C: VIEW   /   TAB: FOLLOW PIPE   /   H: HIDE HUD" if game.auto_mode else "WASD: TURN   /   SHIFT: BOOST   /   H: HIDE HUD", rect.position.y + 379, 14, INK)
+	auto_toggle.text = "AUTO / %s   [F]" % ("ON" if game.auto_mode else "OFF")
+	auto_toggle.position = rect.position + Vector2(38, 312)
+	auto_toggle.size = Vector2(231, 42)
+	hud_toggle.text = "HUD / %s   [H]" % ("ON" if game.hud_enabled else "OFF")
+	hud_toggle.position = rect.position + Vector2(291, 312)
+	hud_toggle.size = Vector2(231, 42)
+	primary.visible = true
+	primary.text = action
+	primary.position = rect.position + Vector2(38, 397)
+	primary.size = Vector2(484, 52)
+	if game.state == "paused":
+		secondary.visible = true
+		secondary.text = "BACK TO TITLE"
+		secondary.position = rect.position + Vector2(38, 463)
+		secondary.size = Vector2(484, 39)
+	else:
+		centered("%dm CUBE    /    %d PIPES    /    THREE CAMERA VIEWS" % [int(game.sim.arena_width), game.bot_count + 1], rect.position.y + 515, 12, MUTED)
