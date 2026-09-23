@@ -10,6 +10,8 @@ const OrbRenderer = preload("res://scripts/orb_renderer.gd")
 const BOT_RESPAWN_DELAY := 2.5
 const RESPAWN_RETRY_DELAY := 0.75
 const TITLE_PREVIEW_STEPS := 60
+const CRASH_VIEW_DURATION := 1.25
+const COLLISION_FEEDBACK_DURATION := 2.0
 var sim := Rules.new()
 var motion := Motion.new(sim)
 var pipes := PipeRenderer.new()
@@ -43,6 +45,11 @@ var fov_message := ""
 var respawn_timers: Array[float] = []
 var player_respawn_pending := false
 var title_preview_steps_left := 0
+var crash_view_time := 0.0
+var crash_position := Vector3.ZERO
+var collision_feedback_time := 0.0
+var collision_position := Vector3.ZERO
+var collision_feedback_label := ""
 
 func _ready() -> void:
 	if not DisplayServer.is_touchscreen_available():
@@ -79,6 +86,9 @@ func _ready() -> void:
 
 func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
 	title_preview_steps_left = 0
+	crash_view_time = 0.0
+	collision_feedback_time = 0.0
+	collision_feedback_label = ""
 	sim.endless_mode = endless_mode and not title_preview
 	sim.reset(seed_value, bot_count, arena_width, player_name, player_color)
 	respawn_timers.clear()
@@ -107,6 +117,7 @@ func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
 	auto_restart_left = 5.0
 	orbit_idle = 0.0
 	camera.initialized = false
+	camera.clear_impact()
 	update_clearance()
 
 func show_title() -> void:
@@ -159,7 +170,7 @@ func set_hud_enabled(enabled: bool) -> void:
 
 func update_hud_visibility() -> void:
 	# Menus remain accessible with Escape; resuming restores the clean view.
-	hud.visible = hud_enabled or state in ["ready", "paused", "finished"] or (hud.touch_ui_enabled and state in ["playing", "countdown"])
+	hud.visible = hud_enabled or collision_feedback_time > 0.0 or state in ["ready", "paused", "finished"] or (hud.touch_ui_enabled and state in ["playing", "countdown"])
 	if is_instance_valid(arena):
 		arena.set_labels_visible(hud_enabled)
 	for i in range(sim.riders.size()):
@@ -169,6 +180,8 @@ func update_hud_visibility() -> void:
 func toggle_pause() -> void:
 	if state == "paused":
 		state = paused_from
+	elif state == "finished" and not auto_mode:
+		show_title()
 	elif state in ["playing", "countdown"] or (state == "finished" and auto_mode):
 		paused_from = state
 		state = "paused"
@@ -196,7 +209,14 @@ func update_clearance() -> void:
 		clearance += 1
 
 func on_completed(moves: Array[Dictionary]) -> void:
+	var player_crash: Dictionary = {}
+	var player_elimination: Dictionary = {}
 	for move: Dictionary in moves:
+		if move.died:
+			if move.id == 0:
+				player_crash = move
+			elif int(move.get("pipe_owner", -1)) == 0:
+				player_elimination = move
 		if endless_mode and move.died:
 			var dead_id: int = move.id
 			respawn_timers[dead_id] = BOT_RESPAWN_DELAY if dead_id > 0 or auto_mode else -1.0
@@ -219,7 +239,22 @@ func on_completed(moves: Array[Dictionary]) -> void:
 		score_message_time = 2.0 if "ELIMINATION" in award.events else 1.5
 	pipes.commit(moves)
 	orbs.sync(sim.scoring)
-	if not sim.riders[watch_id].alive:
+	if not player_crash.is_empty():
+		collision_position = collision_world_position(player_crash)
+		collision_feedback_label = collision_label_for_player_crash(player_crash)
+		collision_feedback_time = COLLISION_FEEDBACK_DURATION
+		camera.trigger_impact(1.0)
+		if not endless_mode:
+			crash_position = collision_position
+			crash_view_time = CRASH_VIEW_DURATION
+			camera.overview = true
+			camera.initialized = false
+	elif not player_elimination.is_empty():
+		collision_position = collision_world_position(player_elimination)
+		collision_feedback_label = "ELIMINATION / " + sim.rider_name(player_elimination.id).to_upper()
+		collision_feedback_time = COLLISION_FEEDBACK_DURATION
+		camera.trigger_impact(0.72)
+	if not sim.riders[watch_id].alive and crash_view_time <= 0.0:
 		var living := sim.alive_ids()
 		if not living.is_empty():
 			watch_id = living[0]
@@ -230,8 +265,28 @@ func on_completed(moves: Array[Dictionary]) -> void:
 		state = "finished"
 		auto_restart_left = 5.0
 
+func collision_world_position(move: Dictionary) -> Vector3:
+	var target: Vector3i = move.target
+	var target_position := sim.world(target)
+	if not sim.inside(target):
+		return (sim.world(move.cell) + target_position) * 0.5
+	return target_position
+
+func collision_label_for_player_crash(move: Dictionary) -> String:
+	var cause: String = sim.riders[0].cause
+	if cause == "Head-on collision":
+		return "HEAD-ON COLLISION"
+	if cause == "Another pipe":
+		var owner_id: int = int(move.get("pipe_owner", -1))
+		if owner_id >= 0:
+			return "CRASHED INTO " + sim.rider_name(owner_id).to_upper()
+	if cause == "Your own pipe":
+		return "OWN PIPE COLLISION"
+	return "WALL IMPACT"
+
 func _process(delta: float) -> void:
 	fov_message_time = maxf(0.0, fov_message_time - delta)
+	collision_feedback_time = maxf(0.0, collision_feedback_time - delta)
 	if state == "ready":
 		advance_title_preview()
 	elif state == "countdown":
@@ -259,9 +314,21 @@ func _process(delta: float) -> void:
 		if sim.riders[i].alive:
 			pipes.animate_rider(i, motion.progress(i))
 	if not pipes.plans.is_empty() and (not endless_mode or sim.riders[watch_id].alive):
-		var head_pose := pipes.pose(watch_id, motion.progress(watch_id))
-		camera.boosting = sim.riders[watch_id].boosting and state == "playing"
-		camera.follow(head_pose, delta, state in ["ready", "finished"])
+		if crash_view_time > 0.0:
+			camera.boosting = false
+			camera.focus_point(crash_position, delta)
+			if state != "paused":
+				crash_view_time = maxf(0.0, crash_view_time - delta)
+				if crash_view_time <= 0.0:
+					if not sim.riders[watch_id].alive:
+						var living := sim.alive_ids()
+						if not living.is_empty():
+							watch_id = living[0]
+					camera.initialized = false
+		else:
+			var head_pose := pipes.pose(watch_id, motion.progress(watch_id))
+			camera.boosting = sim.riders[watch_id].boosting and state == "playing"
+			camera.follow(head_pose, delta, state in ["ready", "finished"])
 		for i in range(sim.riders.size()):
 			var hidden := camera.first_person and i == watch_id and state not in ["ready", "finished"]
 			pipes.heads[i].visible = sim.riders[i].alive and not hidden

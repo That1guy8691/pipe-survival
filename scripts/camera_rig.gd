@@ -22,6 +22,9 @@ var first_person_pitch := 0.0
 var arena_width := Rules.DEFAULT_WIDTH
 var distance := arena_width * 1.7
 var initialized := false
+var impact_time := 0.0
+var impact_duration := 0.28
+var impact_strength := 0.0
 
 func _ready() -> void:
 	current = true
@@ -63,6 +66,25 @@ func orbit_step(horizontal: float, vertical: float) -> void:
 func zoom(amount: float) -> void:
 	distance = clampf(distance + amount, arena_width, arena_width * 2.375)
 
+func trigger_impact(strength: float = 1.0) -> void:
+	impact_time = impact_duration
+	impact_strength = clampf(strength, 0.0, 1.0)
+
+func clear_impact() -> void:
+	impact_time = 0.0
+	impact_strength = 0.0
+
+func focus_point(point: Vector3, delta: float, focus_distance: float = 12.0) -> void:
+	var offset := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch)) * focus_distance
+	var target_position := point + offset
+	var target_basis := Basis.looking_at((point - target_position).normalized(), Vector3.UP)
+	var weight := 1.0 if not initialized else 1.0 - exp(-delta * 10.0)
+	position = position.lerp(target_position, weight)
+	quaternion = quaternion.slerp(target_basis.get_rotation_quaternion(), weight)
+	fov = lerpf(fov, base_fov, weight)
+	apply_impact(delta, target_basis)
+	initialized = true
+
 func follow(pose: Dictionary, delta: float, force_overview: bool = false) -> void:
 	var target_position: Vector3
 	var target_basis: Basis
@@ -98,4 +120,15 @@ func follow(pose: Dictionary, delta: float, force_overview: bool = false) -> voi
 		target_fov += 6.0 + (8.0 if boosting else 0.0)
 	target_fov = minf(target_fov, 120.0)
 	fov = lerpf(fov, target_fov, weight)
+	apply_impact(delta, target_basis)
 	initialized = true
+
+func apply_impact(delta: float, target_basis: Basis) -> void:
+	if impact_time <= 0.0:
+		return
+	var elapsed := impact_duration - impact_time
+	var envelope := impact_time / impact_duration
+	var shake := sin(elapsed * 68.0) * envelope * impact_strength
+	position += target_basis.x * shake * 0.32 + target_basis.y * cos(elapsed * 52.0) * envelope * impact_strength * 0.16
+	fov += envelope * impact_strength * 2.5
+	impact_time = maxf(0.0, impact_time - delta)

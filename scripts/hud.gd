@@ -45,6 +45,8 @@ var touch_ui_enabled := false
 var overlay_draw_active := false
 var touch_draw_active := false
 var applied_touch_scale := -1.0
+var applied_menu_screen_scale := -1.0
+var menu_screen_scale := 1.0
 var joystick_touch_index := -1
 var joystick_vector := Vector2.ZERO
 var joystick_direction := ""
@@ -243,7 +245,8 @@ func ui_scale_factor() -> float:
 	if not touch_ui_enabled:
 		return 1.0
 	var canvas_scale := get_viewport().get_stretch_transform().get_scale().x
-	return 1.0 / maxf(canvas_scale, 0.01)
+	var display_scale := maxf(DisplayServer.screen_get_scale(), 1.0)
+	return display_scale / maxf(canvas_scale, 0.01)
 
 func screen_size() -> Vector2:
 	return size / ui_scale_factor()
@@ -291,10 +294,52 @@ func fit_menu(panel_height: float) -> void:
 	var available := screen_size()
 	var screen_scale := minf(1.0, minf((available.x - 32.0) / 560.0, (available.y - 24.0) / panel_height))
 	screen_scale = clampf(screen_scale, 0.45, 1.0)
+	menu_screen_scale = screen_scale
 	var canvas_scale := screen_scale * ui_scale_factor()
 	menu_canvas.scale = Vector2.ONE * canvas_scale
 	menu_canvas.position = Vector2((size.x - 560.0 * canvas_scale) / 2.0,
 		(size.y - panel_height * canvas_scale) / 2.0)
+	update_menu_control_scale()
+
+func menu_target_height(base_height: float) -> float:
+	if not touch_ui_enabled:
+		return base_height
+	return maxf(base_height, 44.0 / maxf(menu_screen_scale, 0.01))
+
+func menu_control_font_size(base_size: int) -> int:
+	if not touch_ui_enabled:
+		return base_size
+	return maxi(base_size, roundi(float(base_size) / maxf(menu_screen_scale, 0.01)))
+
+func update_menu_control_scale() -> void:
+	if is_equal_approx(applied_menu_screen_scale, menu_screen_scale):
+		return
+	applied_menu_screen_scale = menu_screen_scale
+	for button in [primary, secondary, options_button, options_back]:
+		button.add_theme_font_size_override("font_size", menu_control_font_size(20))
+	for button in [auto_toggle, hud_toggle]:
+		button.add_theme_font_size_override("font_size", menu_control_font_size(18))
+	mode_toggle.add_theme_font_size_override("font_size", menu_control_font_size(15))
+	bot_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
+	size_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
+	player_name_entry.add_theme_font_size_override("font_size", menu_control_font_size(18))
+	player_color_label.add_theme_font_size_override("font_size", menu_control_font_size(16))
+	pattern_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
+
+func options_max_scroll() -> float:
+	if not touch_ui_enabled:
+		return 76.0
+	return maxf(76.0, 434.0 - OPTIONS_VIEW_INSET + menu_target_height(22.0) - OPTIONS_VIEW_HEIGHT)
+
+func menu_text_font_size(text: String, base_size: int, max_width: float, numeric: bool) -> int:
+	if not overlay_draw_active or not touch_ui_enabled:
+		return base_size
+	var draw_font := mono if numeric else font
+	var font_size := menu_control_font_size(base_size)
+	var text_width := draw_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, font_size).x
+	if text_width > max_width:
+		font_size = maxi(1, floori(float(font_size) * max_width / text_width))
+	return font_size
 
 func update_touch_scale(factor: float) -> void:
 	if is_equal_approx(applied_touch_scale, factor):
@@ -342,7 +387,7 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventScreenDrag and event.index == options_drag_index:
 		var drag_distance: float = options_drag_start.y - event.position.y
 		if absf(drag_distance) > 6.0:
-			options_scroll_offset = clampf(options_drag_start_scroll + drag_distance / scale, 0.0, 76.0)
+			options_scroll_offset = clampf(options_drag_start_scroll + drag_distance / scale, 0.0, options_max_scroll())
 			get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and viewport_rect.has_point(event.position):
 		if event.button_index == MOUSE_BUTTON_LEFT:
@@ -355,13 +400,13 @@ func _input(event: InputEvent) -> void:
 		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_UP:
 			options_scroll_offset = maxf(0.0, options_scroll_offset - 48.0)
 		elif event.pressed and event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
-			options_scroll_offset = minf(76.0, options_scroll_offset + 48.0)
+			options_scroll_offset = minf(options_max_scroll(), options_scroll_offset + 48.0)
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and options_drag_index == -2:
 		options_drag_index = -1
 	elif event is InputEventMouseMotion and options_drag_index == -2 and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
 		var drag_distance: float = options_drag_start.y - event.position.y
 		if absf(drag_distance) > 6.0:
-			options_scroll_offset = clampf(options_drag_start_scroll + drag_distance / scale, 0.0, 76.0)
+			options_scroll_offset = clampf(options_drag_start_scroll + drag_distance / scale, 0.0, options_max_scroll())
 			get_viewport().set_input_as_handled()
 
 static func clean_player_name(value: String) -> String:
@@ -381,16 +426,19 @@ func finish_options() -> void:
 	game.show_title()
 
 func label_at(text: String, location: Vector2, size_value: int = 18, color: Color = INK, numeric: bool = false) -> void:
-	draw_string(mono if numeric else font, location, text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_value, color)
+	var max_width := 560.0 - location.x - 20.0 if overlay_draw_active else -1.0
+	var draw_size := menu_text_font_size(text, size_value, max_width, numeric)
+	draw_string(mono if numeric else font, location, text, HORIZONTAL_ALIGNMENT_LEFT, -1, draw_size, color)
 
 func centered(text: String, y: float, size_value: int, color: Color = INK) -> void:
-	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size_value).x
+	var draw_size := menu_text_font_size(text, size_value, 512.0, false)
+	var width := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, draw_size).x
 	var anchor_x := size.x / 2.0
 	if overlay_draw_active:
 		anchor_x = 280.0
 	elif touch_draw_active:
 		anchor_x = screen_size().x / 2.0
-	label_at(text, Vector2(anchor_x - width / 2.0, y), size_value, color)
+	draw_string(font, Vector2(anchor_x - width / 2.0, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1, draw_size, color)
 
 func panel(rect: Rect2, color: Color = Color(0.025, 0.055, 0.095, 0.9)) -> void:
 	draw_style_box(box(color), rect)
@@ -405,11 +453,11 @@ func _process(_delta: float) -> void:
 			touch_turn_requested.emit(pending_direction)
 		if game.state != "ready":
 			options_open = false
-		var panel_height := 664.0 if game.state == "ready" and options_open else 520.0
+		var panel_height := 664.0 if game.state == "ready" and options_open else (560.0 if touch_ui_enabled else 520.0)
 		fit_menu(panel_height)
-		options_scroll_offset = clampf(options_scroll_offset, 0.0, 76.0)
+		options_scroll_offset = clampf(options_scroll_offset, 0.0, options_max_scroll())
 		primary.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
-		secondary.visible = game.state == "paused"
+		secondary.visible = game.state in ["paused", "finished"]
 		options_button.visible = game.state == "ready" and not options_open
 		options_back.visible = game.state == "ready" and options_open
 		mode_toggle.visible = game.state == "ready" and not options_open
@@ -456,10 +504,11 @@ func _process(_delta: float) -> void:
 func _draw() -> void:
 	if game == null or game.sim.riders.is_empty():
 		return
-	if game.state in ["ready", "paused", "finished"]:
+	if game.state in ["ready", "paused"] or (game.state == "finished" and game.crash_view_time <= 0.0):
 		draw_overlay()
 		return
 	if not game.hud_enabled and not touch_ui_enabled:
+		draw_collision_feedback()
 		return
 	if touch_ui_enabled:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE * ui_scale_factor())
@@ -468,6 +517,7 @@ func _draw() -> void:
 			draw_touch_game_hud()
 		if game.state in ["playing", "countdown"] and not game.auto_mode and game.sim.riders[0].alive:
 			draw_touch_joystick()
+		draw_collision_feedback()
 		touch_draw_active = false
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
@@ -494,6 +544,7 @@ func _draw() -> void:
 	label_at(score_detail, Vector2(44, size.y - 77), 15, ACCENT if focus_rider.combo_count > 1 else MUTED)
 	draw_boost(focus_rider)
 	draw_play_messages()
+	draw_collision_feedback()
 
 func leaderboard_ids(focus_id: int) -> Array:
 	var sim = game.sim
@@ -524,10 +575,27 @@ func draw_leaderboard(focus_id: int) -> void:
 		if i == focus_id:
 			draw_style_box(box(Color("203b4a"), 5), Rect2(x + 10, y - 23, 236, 31))
 		draw_circle(Vector2(x + 23, y - 6), 4.5, color)
-		label_at("%02d %s" % [ranking.find(i) + 1, game.sim.rider_name(i)], Vector2(x + 36, y), 17, color)
 		var score := str(game.sim.riders[i].score)
 		var width := mono.get_string_size(score, HORIZONTAL_ALIGNMENT_LEFT, -1, 18).x
-		label_at(score, Vector2(x + 235 - width, y), 18, INK if i == focus_id else MUTED, true)
+		var score_x := x + 235.0 - width
+		var name_x := x + 36.0
+		var name_width := score_x - name_x - 8.0
+		var rank := ranking.find(i) + 1
+		var name_text := fit_leaderboard_name(game.sim.rider_name(i), rank, name_width)
+		label_at(name_text, Vector2(name_x, y), 17, color)
+		label_at(score, Vector2(score_x, y), 18, INK if i == focus_id else MUTED, true)
+
+func fit_leaderboard_name(name: String, rank: int, max_width: float) -> String:
+	var prefix := "%02d " % rank
+	if font.get_string_size(prefix + name, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x <= max_width:
+		return prefix + name
+	var shortened := name
+	while not shortened.is_empty():
+		var candidate := prefix + shortened + "…"
+		if font.get_string_size(candidate, HORIZONTAL_ALIGNMENT_LEFT, -1, 17).x <= max_width:
+			return candidate
+		shortened = shortened.left(shortened.length() - 1)
+	return prefix.strip_edges()
 
 func boost_status(rider: Dictionary) -> String:
 	if not rider.alive:
@@ -629,9 +697,35 @@ func draw_play_messages() -> void:
 		centered(str(ceili(game.countdown)), h / 2.0 + 25, 88, ACCENT)
 		centered("AUTO MODE  /  SIT BACK AND WATCH" if game.auto_mode else "YOUR PIPE  /  GET READY", h / 2.0 + 68, 17)
 
+func draw_collision_feedback() -> void:
+	if game.collision_feedback_time <= 0.0:
+		return
+	var bounds := screen_size() if touch_draw_active else size
+	var age: float = game.COLLISION_FEEDBACK_DURATION - game.collision_feedback_time
+	var flash := clampf(1.0 - age / 0.14, 0.0, 1.0)
+	if flash > 0.0:
+		draw_rect(Rect2(Vector2.ZERO, bounds), Color(1.0, 0.26, 0.045, flash * 0.16))
+	var point: Vector2 = game.camera.unproject_position(game.collision_position)
+	if touch_draw_active:
+		point /= ui_scale_factor()
+	if not game.camera.is_position_behind(game.collision_position) and Rect2(Vector2.ZERO, bounds).grow(48.0).has_point(point):
+		var marker_alpha := clampf(game.collision_feedback_time / 0.65, 0.0, 1.0)
+		var pulse := fposmod(age * 1.4, 1.0)
+		draw_circle(point, 5.0, Color(1.0, 0.38, 0.08, marker_alpha * 0.28))
+		draw_arc(point, 14.0 + pulse * 9.0, 0.0, TAU, 40,
+			Color(1.0, 0.64, 0.18, marker_alpha), 3.0, true)
+		if age < 0.38:
+			var burst: float = age / 0.38
+			for spoke in range(8):
+				var angle := float(spoke) * TAU / 8.0 + 0.18
+				var direction := Vector2(cos(angle), sin(angle))
+				draw_line(point + direction * 8.0, point + direction * (19.0 + burst * 15.0),
+					Color(1.0, 0.8, 0.34, 1.0 - burst), 2.0, true)
+	centered(game.collision_feedback_label, bounds.y * 0.69, 20, Color("ffcf83"))
+
 func draw_overlay() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.005, 0.012, 0.025, 0.5))
-	var panel_height := 664.0 if game.state == "ready" and options_open else 520.0
+	var panel_height := 664.0 if game.state == "ready" and options_open else (560.0 if touch_ui_enabled else 520.0)
 	fit_menu(panel_height)
 	var rect := Rect2(Vector2.ZERO, Vector2(560, panel_height))
 	overlay_draw_active = true
@@ -676,21 +770,30 @@ func draw_overlay() -> void:
 			"%d orbs collected / %d eliminations" % [game.sim.riders[0].orb_count, game.sim.riders[0].eliminations]]
 		if game.auto_mode:
 			lines.append("Next round in %d seconds." % ceili(game.auto_restart_left))
+		else:
+			lines.append("Esc / Back to Title")
 		action = "ENTER  /  PLAY AGAIN"
 	centered(title, rect.position.y + 72, 33)
 	centered(subtitle, rect.position.y + 102, 14, ACCENT)
 	for i in range(lines.size()):
 		centered(lines[i], rect.position.y + 149 + i * 27, 17, MUTED)
+	var toggle_height := menu_target_height(42)
 	draw_menu_toggles(rect, 300)
 	primary.visible = true
 	primary.text = action
-	primary.position = rect.position + Vector2(38, 365)
-	primary.size = Vector2(484, 52)
-	if game.state == "paused":
+	var primary_y := 365.0
+	if touch_ui_enabled:
+		primary_y = 300.0 + toggle_height + 12.0
+	primary.position = rect.position + Vector2(38, primary_y)
+	primary.size = Vector2(484, menu_target_height(52))
+	if game.state in ["paused", "finished"]:
 		secondary.visible = true
 		secondary.text = "BACK TO TITLE"
-		secondary.position = rect.position + Vector2(38, 430)
-		secondary.size = Vector2(484, 42)
+		var secondary_y := 430.0
+		if touch_ui_enabled:
+			secondary_y = primary_y + menu_target_height(52) + 12.0
+		secondary.position = rect.position + Vector2(38, secondary_y)
+		secondary.size = Vector2(484, menu_target_height(42))
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	overlay_draw_active = false
 
@@ -721,67 +824,83 @@ func draw_title_page(rect: Rect2) -> void:
 			lines.append("WASD steer / hold Shift to boost / Esc pause.")
 	for i in range(lines.size()):
 		centered(lines[i], rect.position.y + 151 + i * 27, 17, MUTED)
+	var mode_height := menu_target_height(42)
 	draw_title_mode_controls(rect, 270)
 	options_button.visible = true
 	options_button.text = "GAME OPTIONS"
-	options_button.position = rect.position + Vector2(38, 330)
-	options_button.size = Vector2(484, 43)
+	var options_y := 330.0
+	var primary_y := 389.0
+	var summary_y := 486.0
+	if touch_ui_enabled:
+		options_y = 270.0 + mode_height + 12.0
+		primary_y = options_y + menu_target_height(43) + 12.0
+		summary_y = primary_y + menu_target_height(52) + 24.0
+	options_button.position = rect.position + Vector2(38, options_y)
+	options_button.size = Vector2(484, menu_target_height(43))
 	primary.visible = true
 	primary.text = "ENTER  /  WATCH AUTO MODE" if game.auto_mode else "ENTER  /  START ROUND"
-	primary.position = rect.position + Vector2(38, 389)
-	primary.size = Vector2(484, 52)
+	primary.position = rect.position + Vector2(38, primary_y)
+	primary.size = Vector2(484, menu_target_height(52))
 	var mode_name := "ENDLESS" if game.endless_mode else "SURVIVAL"
-	centered("%s    /    YOU + %d BOTS    /    %dM CUBE" % [mode_name, game.bot_count, game.arena_width], rect.position.y + 486, 14, MUTED)
+	centered("%s    /    YOU + %d BOTS    /    %dM CUBE" % [mode_name, game.bot_count, game.arena_width], rect.position.y + summary_y, 14, MUTED)
 
 func draw_title_mode_controls(rect: Rect2, offset_y: float) -> void:
 	var width := 156.0
 	var gap := 8.0
 	var origin := Vector2(38, offset_y)
-	mode_toggle.text = "MODE / ENDLESS" if game.endless_mode else "MODE / SURVIVAL"
+	mode_toggle.text = ("ENDLESS" if game.endless_mode else "SURVIVAL") if touch_ui_enabled else ("MODE / ENDLESS" if game.endless_mode else "MODE / SURVIVAL")
 	mode_toggle.position = origin
-	mode_toggle.size = Vector2(width, 42)
+	mode_toggle.size = Vector2(width, menu_target_height(42))
 	auto_toggle.text = "AUTO / %s" % ("ON" if game.auto_mode else "OFF")
 	auto_toggle.position = origin + Vector2(width + gap, 0)
-	auto_toggle.size = Vector2(width, 42)
+	auto_toggle.size = Vector2(width, menu_target_height(42))
 	hud_toggle.text = "HUD / %s" % ("ON" if game.hud_enabled else "OFF")
 	hud_toggle.position = origin + Vector2((width + gap) * 2, 0)
-	hud_toggle.size = Vector2(width, 42)
+	hud_toggle.size = Vector2(width, menu_target_height(42))
 
 func draw_options_page(rect: Rect2) -> void:
 	centered("ROUND OPTIONS", rect.position.y + 64, 31)
 	centered("ROUND AND PLAYER SETTINGS", rect.position.y + 94, 14, ACCENT)
 	centered("Set up your pipe; swipe or scroll for camera settings.", rect.position.y + 130, 16, MUTED)
+	var name_label_y := 123.0 if not touch_ui_enabled else 135.0
+	var name_field_y := 135.0 if not touch_ui_enabled else 147.0
+	var color_label_y := 207.0 if not touch_ui_enabled else 230.0
+	var color_field_y := 219.0 if not touch_ui_enabled else 242.0
+	var preview_y := 281.0 if not touch_ui_enabled else 322.0
+	var preview_height := 96.0 if not touch_ui_enabled else 82.0
+	var fov_label_y := 405.0 if not touch_ui_enabled else 425.0
+	var fov_slider_y := 414.0 if not touch_ui_enabled else 434.0
 	draw_set_transform(menu_canvas.position + Vector2(0, (OPTIONS_VIEW_TOP - options_scroll_offset) * menu_canvas.scale.y),
 		0.0, menu_canvas.scale)
 	draw_option_label("BOT COUNT", Vector2(38, 40.0 - OPTIONS_VIEW_INSET), 15, MUTED)
 	draw_option_label("ARENA SIZE", Vector2(291, 40.0 - OPTIONS_VIEW_INSET), 15, MUTED)
 	bot_selector.position = Vector2(38, 52.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
-	bot_selector.size = Vector2(231, 46)
+	bot_selector.size = Vector2(231, menu_target_height(46))
 	bot_selector.select(bot_selector.get_item_index(game.bot_count))
 	size_selector.position = Vector2(291, 52.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
-	size_selector.size = Vector2(231, 46)
+	size_selector.size = Vector2(231, menu_target_height(46))
 	size_selector.select(size_selector.get_item_index(game.arena_width))
-	draw_option_label("PIPE NAME", Vector2(38, 123.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("PIPE NAME", Vector2(38, name_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
 	if not player_name_entry.has_focus() and player_name_entry.text != game.player_name:
 		player_name_entry.text = game.player_name
-	player_name_entry.position = Vector2(38, 135.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
-	player_name_entry.size = Vector2(484, 46)
-	draw_option_label("PIPE COLOR", Vector2(38, 207.0 - OPTIONS_VIEW_INSET), 15, MUTED)
-	draw_option_label("PIPE PATTERN", Vector2(291, 207.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	player_name_entry.position = Vector2(38, name_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	player_name_entry.size = Vector2(484, menu_target_height(46))
+	draw_option_label("PIPE COLOR", Vector2(38, color_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("PIPE PATTERN", Vector2(291, color_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
 	if player_color_picker.color != game.player_color:
 		player_color_picker.color = game.player_color
-	player_color_picker.position = Vector2(38, 219.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
-	player_color_picker.size = Vector2(231, 46)
+	player_color_picker.position = Vector2(38, color_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	player_color_picker.size = Vector2(231, menu_target_height(46))
 	player_color_label.position = player_color_picker.position
 	player_color_label.size = player_color_picker.size
 	var label_color := Color("071d23") if game.player_color.get_luminance() > 0.48 else INK
 	player_color_label.add_theme_color_override("font_color", label_color)
-	pattern_selector.position = Vector2(291, 219.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
-	pattern_selector.size = Vector2(231, 46)
+	pattern_selector.position = Vector2(291, color_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	pattern_selector.size = Vector2(231, menu_target_height(46))
 	pattern_selector.select(pattern_selector.get_item_index(game.player_pattern))
-	pipe_preview.position = Vector2(38, 281.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
-	pipe_preview.size = Vector2(484, 96)
-	var preview_content_top := 281.0 - OPTIONS_VIEW_INSET
+	pipe_preview.position = Vector2(38, preview_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	pipe_preview.size = Vector2(484, preview_height)
+	var preview_content_top := preview_y - OPTIONS_VIEW_INSET
 	var preview_top := maxf(preview_content_top, options_scroll_offset)
 	var preview_bottom := minf(preview_content_top + pipe_preview.size.y,
 		options_scroll_offset + options_content.size.y)
@@ -790,12 +909,14 @@ func draw_options_page(rect: Rect2) -> void:
 			Vector2(pipe_preview.size.x, preview_bottom - preview_top)), Color("162536"))
 	if not is_equal_approx(fov_slider.value, game.camera.base_fov):
 		fov_slider.set_value_no_signal(game.camera.base_fov)
-	draw_option_label("FIELD OF VIEW", Vector2(38, 405.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("FIELD OF VIEW", Vector2(38, fov_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
 	draw_option_label("%d°" % roundi(fov_slider.value),
-		Vector2(466, 405.0 - OPTIONS_VIEW_INSET), 15, ACCENT, true)
-	fov_slider.position = Vector2(38, 414.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
-	fov_slider.size = Vector2(484, 22)
-	var rail_position := Vector2(fov_slider.position.x + 8.0, 423.0 - OPTIONS_VIEW_INSET)
+		Vector2(466, fov_label_y - OPTIONS_VIEW_INSET), 15, ACCENT, true)
+	fov_slider.position = Vector2(38, fov_slider_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	var slider_height := menu_target_height(22)
+	fov_slider.size = Vector2(484, slider_height)
+	var rail_position := Vector2(fov_slider.position.x + 8.0,
+		fov_slider_y - OPTIONS_VIEW_INSET + slider_height / 2.0)
 	var rail_width := fov_slider.size.x - 16
 	if rail_position.y >= options_scroll_offset and rail_position.y + 4.0 <= options_scroll_offset + options_content.size.y:
 		draw_style_box(box(Color("23384d"), 3), Rect2(rail_position, Vector2(rail_width, 4)))
@@ -806,8 +927,9 @@ func draw_options_page(rect: Rect2) -> void:
 	options_back.visible = true
 	options_back.text = "DONE"
 	options_back.position = Vector2(38, 584)
-	options_back.size = Vector2(484, 44)
-	centered("PLAYING AS %s  /  %d BOTS  /  %dm CUBE" % [game.player_name, game.bot_count, game.arena_width], rect.position.y + 650, 14, MUTED)
+	options_back.size = Vector2(484, menu_target_height(44))
+	var footer_y := 650.0 if not touch_ui_enabled else 552.0
+	centered("PLAYING AS %s  /  %d BOTS  /  %dm CUBE" % [game.player_name, game.bot_count, game.arena_width], rect.position.y + footer_y, 14, MUTED)
 
 func draw_option_label(text: String, position: Vector2, size_value: int, color: Color, numeric := false) -> void:
 	if position.y < options_scroll_offset or position.y > options_scroll_offset + options_content.size.y - 18.0:
@@ -815,9 +937,9 @@ func draw_option_label(text: String, position: Vector2, size_value: int, color: 
 	label_at(text, position, size_value, color, numeric)
 
 func draw_menu_toggles(rect: Rect2, offset_y: float) -> void:
-	auto_toggle.text = "AUTO MODE  /  %s" % ("ON" if game.auto_mode else "OFF")
+	auto_toggle.text = ("AUTO / %s" % ("ON" if game.auto_mode else "OFF")) if touch_ui_enabled else ("AUTO MODE  /  %s" % ("ON" if game.auto_mode else "OFF"))
 	auto_toggle.position = Vector2(38, offset_y)
-	auto_toggle.size = Vector2(231, 42)
+	auto_toggle.size = Vector2(231, menu_target_height(42))
 	hud_toggle.text = "HUD  /  %s" % ("ON" if game.hud_enabled else "OFF")
 	hud_toggle.position = Vector2(291, offset_y)
-	hud_toggle.size = Vector2(231, 42)
+	hud_toggle.size = Vector2(231, menu_target_height(42))
