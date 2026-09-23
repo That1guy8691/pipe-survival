@@ -36,9 +36,8 @@ same project when changes are pushed to `main`.
 | S | Pitch down relative to your pipe |
 | A | Turn left relative to your pipe |
 | D | Turn right relative to your pipe |
-| Arrow keys in Ring view | Hold Left / Right to circle the pipe tip; Up / Down to aim |
-| Arrow keys in other views | Nudge the camera orbit or look direction |
-| C | Cycle chase / first person / overview / ring |
+| Arrow keys | Nudge the camera orbit or look direction |
+| C | Cycle chase / first person / overview |
 | Q / E during a round | Decrease / increase the field of view by 2° |
 | F / Auto Mode button | Toggle automatic steering, boost, and round replay |
 | H / HUD button | Hide or restore the gameplay interface and all floating labels |
@@ -59,12 +58,10 @@ If no safe inlet is open yet, the respawn waits for one. Survival remains the de
 mode and keeps its original persistent trails and last-pipe-wins ending.
 
 Each WASD turn is triggered once per tap; two turns can be queued, each applied at
-the next available grid junction. Ring camera movement continues while Left or Right
-is held.
+the next available grid junction.
 Manual rounds start with the familiar Chase camera. C cycles through First Person,
-Overview, then the saved Ring camera. The Ring camera rides around the pipe's leading
-end; holding Left or Right moves along the ring while the pipe advances, creating a
-spiraling camera path. Up and Down adjust its aim. Q and E adjust FOV during a round;
+Overview, then back to Chase. Arrow keys adjust the camera orbit or look direction.
+Q and E adjust FOV during a round;
 the Game Options slider sets its starting value. Camera switching preserves steering
 relative to the pipe.
 Losing window focus pauses a manually controlled round.

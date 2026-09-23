@@ -4,7 +4,7 @@ const Rules = preload("res://scripts/simulation.gd")
 const MIN_FOV := 60.0
 const MAX_FOV := 110.0
 
-enum View { CHASE, FIRST_PERSON, OVERVIEW, RING }
+enum View { CHASE, FIRST_PERSON, OVERVIEW }
 var view: View = View.CHASE
 var overview: bool:
 	get: return view == View.OVERVIEW
@@ -15,9 +15,6 @@ var boosting := false
 var base_fov := 78.0
 var yaw := 0.67
 var pitch := 0.43
-var ring_angle := PI * 0.5
-var ring_look_pitch := 0.0
-const RING_RADIUS := 5.4
 var chase_yaw := 0.0
 var chase_pitch := 0.407
 var first_person_yaw := 0.0
@@ -42,11 +39,11 @@ func set_base_fov(value: float) -> void:
 	base_fov = clampf(value, MIN_FOV, MAX_FOV)
 
 func toggle() -> void:
-	view = (view + 1) % 4 as View
+	view = (view + 1) % View.size() as View
 	initialized = false
 
 func view_name() -> String:
-	return ["CHASE CAMERA", "FIRST PERSON", "OVERVIEW", "PIPE RING"][view]
+	return ["CHASE CAMERA", "FIRST PERSON", "OVERVIEW"][view]
 
 func orbit(relative: Vector2) -> void:
 	if overview:
@@ -55,9 +52,6 @@ func orbit(relative: Vector2) -> void:
 	elif first_person:
 		first_person_yaw = wrapf(first_person_yaw - relative.x * 0.006, -PI, PI)
 		first_person_pitch = clampf(first_person_pitch + relative.y * 0.006, -0.8, 0.8)
-	elif view == View.RING:
-		ring_angle = wrapf(ring_angle - relative.x * 0.006, -PI, PI)
-		ring_look_pitch = clampf(ring_look_pitch + relative.y * 0.006, -0.8, 0.8)
 	else:
 		chase_yaw = wrapf(chase_yaw - relative.x * 0.006, -PI, PI)
 		chase_pitch = clampf(chase_pitch + relative.y * 0.006, -0.35, 1.1)
@@ -77,17 +71,6 @@ func follow(pose: Dictionary, delta: float, force_overview: bool = false) -> voi
 		var focus: Vector3 = pose.position * 0.12
 		target_position = focus + offset
 		target_basis = Basis.looking_at((focus - target_position).normalized(), Vector3.UP)
-	elif view == View.RING and not force_overview:
-		var forward: Vector3 = pose.forward.normalized()
-		var up: Vector3 = pose.up.normalized()
-		var right := forward.cross(up).normalized()
-		var radial := right * cos(ring_angle) + up * sin(ring_angle)
-		target_position = pose.position + radial * RING_RADIUS
-		var camera_limit := arena_width * 0.5 - 0.6
-		target_position = target_position.clamp(Vector3.ONE * -camera_limit, Vector3.ONE * camera_limit)
-		var focus_forward := forward.rotated(right, ring_look_pitch).normalized()
-		var focus: Vector3 = pose.position + focus_forward * 4.5
-		target_basis = Basis.looking_at((focus - target_position).normalized(), up)
 	elif first_person:
 		target_position = pose.position + pose.forward * 0.3
 		var view_forward: Vector3 = pose.forward.rotated(pose.up, first_person_yaw)

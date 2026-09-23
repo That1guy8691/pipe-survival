@@ -35,10 +35,6 @@ var auto_restart_left := 5.0
 var paused_from := "playing"
 var orbit_idle := 0.0
 var boost_held := false
-var camera_left_held := false
-var camera_right_held := false
-var camera_up_held := false
-var camera_down_held := false
 var score_message := ""
 var score_message_time := 0.0
 var fov_message_time := 0.0
@@ -64,10 +60,6 @@ func _ready() -> void:
 	motion.planned.connect(on_planned)
 	get_window().focus_exited.connect(func():
 		boost_held = false
-		camera_left_held = false
-		camera_right_held = false
-		camera_up_held = false
-		camera_down_held = false
 		if state == "playing" and not automated and not auto_mode:
 			paused_from = state
 			state = "paused")
@@ -101,10 +93,6 @@ func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
 	pipes.animate(0.0, sim.riders)
 	orbs.sync(sim.scoring)
 	boost_held = false
-	camera_left_held = false
-	camera_right_held = false
-	camera_up_held = false
-	camera_down_held = false
 	watch_id = 0
 	score_message_time = 0.0
 	fov_message_time = 0.0
@@ -225,11 +213,6 @@ func on_completed(moves: Array[Dictionary]) -> void:
 
 func _process(delta: float) -> void:
 	fov_message_time = maxf(0.0, fov_message_time - delta)
-	if camera.view == CameraRig.View.RING:
-		var orbit_axis := float(camera_right_held) - float(camera_left_held)
-		var look_axis := float(camera_up_held) - float(camera_down_held)
-		camera.ring_angle = wrapf(camera.ring_angle - orbit_axis * delta * 1.8, -PI, PI)
-		camera.ring_look_pitch = clampf(camera.ring_look_pitch + look_axis * delta * 1.1, -0.8, 0.8)
 	if state == "countdown":
 		countdown -= delta
 		if countdown <= 0.0:
@@ -269,16 +252,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey:
 		var key: int = event.physical_keycode if event.physical_keycode != 0 else event.keycode
 		if state != "ready" and key in [KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN]:
-			match key:
-				KEY_LEFT: camera_left_held = event.pressed
-				KEY_RIGHT: camera_right_held = event.pressed
-				KEY_UP: camera_up_held = event.pressed
-				KEY_DOWN: camera_down_held = event.pressed
 			if event.pressed and not event.echo:
-				if camera.view != CameraRig.View.RING:
-					var horizontal := -1.0 if key == KEY_LEFT else 1.0 if key == KEY_RIGHT else 0.0
-					var vertical := -1.0 if key == KEY_UP else 1.0 if key == KEY_DOWN else 0.0
-					camera.orbit_step(horizontal, vertical)
+				var horizontal := -1.0 if key == KEY_LEFT else 1.0 if key == KEY_RIGHT else 0.0
+				var vertical := -1.0 if key == KEY_UP else 1.0 if key == KEY_DOWN else 0.0
+				camera.orbit_step(horizontal, vertical)
 				orbit_idle = 4.0
 			return
 		if key == KEY_SHIFT and not auto_mode:

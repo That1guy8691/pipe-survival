@@ -80,11 +80,7 @@ func _ready() -> void:
 	require(game.camera.overview, "C switches first person to overview")
 	key(KEY_C)
 	await get_tree().process_frame
-	require(game.camera.view == game.camera.View.RING, "Camera cycle returns to the pipe-ring view")
-	await capture("02-ring.png")
-	key(KEY_C)
-	await get_tree().process_frame
-	require(game.camera.view == game.camera.View.CHASE, "The original chase view remains in the camera cycle")
+	require(game.camera.view == game.camera.View.CHASE, "Camera cycle returns directly to chase")
 	await capture("02-chase.png")
 	key(KEY_C)
 	key(KEY_C)

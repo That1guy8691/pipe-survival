@@ -46,16 +46,8 @@ func run() -> void:
 	key(KEY_TAB)
 	check(game.watch_id != 0 and game.sim.riders[game.watch_id].alive, "Tab follows another living pipe while cyan is alive")
 	key(KEY_C)
-	check(game.camera.view == game.camera.View.RING and game.watch_id != 0, "C selects the pipe-ring camera without losing the followed pipe")
-	var ring_angle: float = game.camera.ring_angle
-	var ring_position: Vector3 = game.camera.global_position
-	hold_key(KEY_RIGHT, true)
-	await create_timer(0.18).timeout
-	hold_key(KEY_RIGHT, false)
-	check(game.camera.ring_angle < ring_angle and game.camera.global_position.distance_to(ring_position) > 0.05,
-		"Holding Right moves the camera around the advancing pipe tip")
-	key(KEY_C)
-	check(game.camera.view == game.camera.View.CHASE, "The existing orbiting chase view remains available")
+	check(game.camera.view == game.camera.View.CHASE and game.watch_id != 0,
+		"C cycles directly from overview to chase without losing the followed pipe")
 	key(KEY_C)
 	await process_frame
 	await RenderingServer.frame_post_draw
