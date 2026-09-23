@@ -45,7 +45,8 @@ var player_respawn_pending := false
 var title_preview_steps_left := 0
 
 func _ready() -> void:
-	DisplayServer.window_set_min_size(Vector2i(960, 600))
+	if not DisplayServer.is_touchscreen_available():
+		DisplayServer.window_set_min_size(Vector2i(960, 600))
 	pipes.model = sim
 	orbs.model = sim
 	add_child(pipes)
@@ -58,6 +59,9 @@ func _ready() -> void:
 	hud.primary_clicked.connect(primary_action)
 	hud.secondary_clicked.connect(show_title)
 	hud.quick_restart_clicked.connect(request_player_restart)
+	hud.touch_turn_requested.connect(queue_turn)
+	hud.touch_boost_changed.connect(set_touch_boost)
+	hud.touch_pause_requested.connect(toggle_pause)
 	motion.completed.connect(on_completed)
 	motion.planned.connect(on_planned)
 	get_window().focus_exited.connect(func():
@@ -154,7 +158,7 @@ func set_hud_enabled(enabled: bool) -> void:
 
 func update_hud_visibility() -> void:
 	# Menus remain accessible with Escape; resuming restores the clean view.
-	hud.visible = hud_enabled or state in ["ready", "paused"]
+	hud.visible = hud_enabled or state in ["ready", "paused", "finished"] or (hud.touch_ui_enabled and state in ["playing", "countdown"])
 	if is_instance_valid(arena):
 		arena.set_labels_visible(hud_enabled)
 	for i in range(sim.riders.size()):
@@ -307,8 +311,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				KEY_S: command = "down"
 				KEY_A: command = "left"
 				KEY_D: command = "right"
-			if not command.is_empty() and turn_queue.size() < 2:
-				turn_queue.append(command)
+			if not command.is_empty():
+				queue_turn(command)
 	elif event is InputEventMouseMotion and camera.overview and Input.is_mouse_button_pressed(MOUSE_BUTTON_RIGHT):
 		camera.orbit(event.relative)
 		orbit_idle = 4.0
@@ -317,6 +321,17 @@ func _unhandled_input(event: InputEvent) -> void:
 			camera.zoom(-3.0)
 		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN:
 			camera.zoom(3.0)
+
+func queue_turn(command: String) -> void:
+	if state not in ["playing", "countdown"] or not sim.riders[0].alive or auto_mode:
+		return
+	if command in ["up", "down", "left", "right"] and turn_queue.size() < 2:
+		turn_queue.append(command)
+
+func set_touch_boost(held: bool) -> void:
+	boost_held = held and state == "playing" and not auto_mode and sim.riders[0].alive
+	if not held:
+		sim.riders[0].boost_locked = false
 
 func adjust_camera_fov(change: float) -> void:
 	camera.set_base_fov(camera.base_fov + change)
@@ -328,7 +343,10 @@ func set_endless_mode(enabled: bool) -> void:
 	hud.queue_redraw()
 
 func request_player_restart() -> void:
-	if not endless_mode or state != "playing" or sim.riders[0].alive:
+	if state != "playing" or sim.riders[0].alive:
+		return
+	if not endless_mode:
+		start_round()
 		return
 	player_respawn_pending = true
 	respawn_timers[0] = 0.0
