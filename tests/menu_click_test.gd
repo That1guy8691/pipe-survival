@@ -80,6 +80,21 @@ func key(code: Key) -> void:
 	event.physical_keycode = code
 	Input.parse_input_event(event)
 
+func scroll_options_to_fov() -> void:
+	var scale: float = game.hud.menu_canvas.scale.x
+	var point: Vector2 = game.hud.menu_canvas.position \
+		+ game.hud.options_content.position * scale + Vector2(280, 180) * scale
+	for _step in range(2):
+		var event := InputEventMouseButton.new()
+		event.position = point
+		event.global_position = point
+		event.button_index = MOUSE_BUTTON_WHEEL_DOWN
+		event.pressed = true
+		root.push_input(event, true)
+		event.pressed = false
+		root.push_input(event, true)
+		await process_frame
+
 func capture(filename: String) -> void:
 	for argument in OS.get_cmdline_user_args():
 		if argument.begins_with("--qa-dir="):
@@ -150,6 +165,10 @@ func run() -> void:
 	game.hud.player_name_entry.emit_signal("text_changed", "MATRIX")
 	game.hud.player_color_picker.color = player_color
 	game.hud.player_color_picker.emit_signal("color_changed", player_color)
+	await scroll_options_to_fov()
+	check(is_equal_approx(game.hud.options_scroll_offset, 76.0),
+		"Scrolling Game Options reveals the camera settings")
+	await capture("menu-options-scrolled.png")
 	var original_fov: float = game.camera.base_fov
 	await click(game.hud.fov_slider)
 	var selected_fov: float = game.camera.base_fov
@@ -207,6 +226,23 @@ func run() -> void:
 	check(game.arena_width == 60 and game.bot_count == 7 and game.sim.rider_name(0) == "MATRIX"
 		and game.sim.rider_color(0) == player_color and is_equal_approx(game.camera.base_fov, selected_fov),
 		"Settings, identity, and FOV survive returning to title")
+	root.size = Vector2i(390, 844)
+	await create_timer(0.25).timeout
+	game.hud.touch_ui_enabled = false
+	game.primary_action()
+	await process_frame
+	var touch_event := InputEventScreenTouch.new()
+	touch_event.index = 7
+	touch_event.position = Vector2(195, 422)
+	touch_event.pressed = true
+	root.push_input(touch_event, true)
+	await process_frame
+	check(game.hud.touch_ui_enabled and game.hud.touch_boost.visible
+		and game.hud.touch_view.visible and game.hud.touch_pause.visible,
+		"A first screen touch reveals mobile controls if platform detection misses")
+	await capture("mobile-touch-controls.png")
+	touch_event.pressed = false
+	root.push_input(touch_event, true)
 	await capture("menu-small-window.png")
 	print("MENU POINTER CHECKS: %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

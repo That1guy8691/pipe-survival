@@ -61,6 +61,7 @@ func _ready() -> void:
 	hud.quick_restart_clicked.connect(request_player_restart)
 	hud.touch_turn_requested.connect(queue_turn)
 	hud.touch_boost_changed.connect(set_touch_boost)
+	hud.touch_view_requested.connect(swap_camera_view)
 	hud.touch_pause_requested.connect(toggle_pause)
 	motion.completed.connect(on_completed)
 	motion.planned.connect(on_planned)
@@ -302,7 +303,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			else:
 				start_round()
 		elif key == KEY_C:
-			camera.toggle()
+			swap_camera_view()
 		elif key == KEY_TAB and (auto_mode or not sim.riders[0].alive):
 			var alive := sim.alive_ids()
 			if not alive.is_empty():
@@ -337,6 +338,11 @@ func set_touch_boost(held: bool) -> void:
 	boost_held = held and state == "playing" and not auto_mode and sim.riders[0].alive
 	if not held:
 		sim.riders[0].boost_locked = false
+
+func swap_camera_view() -> void:
+	camera.toggle()
+	fov_message = camera.view_name()
+	fov_message_time = 1.5
 
 func adjust_camera_fov(change: float) -> void:
 	camera.set_base_fov(camera.base_fov + change)

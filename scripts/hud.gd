@@ -5,11 +5,15 @@ signal secondary_clicked
 signal quick_restart_clicked
 signal touch_turn_requested(command: String)
 signal touch_boost_changed(held: bool)
+signal touch_view_requested
 signal touch_pause_requested
 const INK := Color("e8f2f5")
 const MUTED := Color("8da4b8")
 const ACCENT := Color("56eddf")
 const PLAYER_COLOR := Color("56eddf")
+const OPTIONS_VIEW_TOP := 168.0
+const OPTIONS_VIEW_INSET := 38.0
+const OPTIONS_VIEW_HEIGHT := 322.0
 const Appearance = preload("res://scripts/pipe_appearance.gd")
 const PipePreview = preload("res://scripts/pipe_preview.gd")
 var game: Node
@@ -33,14 +37,17 @@ var mode_toggle := Button.new()
 var quick_restart := Button.new()
 var menu_canvas := Control.new()
 var options_content := Control.new()
-var touch_directions: Array[Button] = []
 var touch_boost := Button.new()
+var touch_view := Button.new()
 var touch_pause := Button.new()
 var options_open := false
 var touch_ui_enabled := false
 var overlay_draw_active := false
 var touch_draw_active := false
 var applied_touch_scale := -1.0
+var joystick_touch_index := -1
+var joystick_vector := Vector2.ZERO
+var joystick_direction := ""
 var options_scroll_offset := 0.0
 var options_drag_index := -1
 var options_drag_start := Vector2.ZERO
@@ -54,8 +61,8 @@ func _ready() -> void:
 	mono.font_names = PackedStringArray(["Consolas"])
 	add_child(menu_canvas)
 	menu_canvas.add_child(options_content)
-	options_content.position = Vector2(0, 130)
-	options_content.size = Vector2(560, 360)
+	options_content.position = Vector2(0, OPTIONS_VIEW_TOP)
+	options_content.size = Vector2(560, OPTIONS_VIEW_HEIGHT)
 	options_content.clip_contents = true
 	for button in [primary, secondary, options_button, options_back, auto_toggle, hud_toggle, mode_toggle]:
 		menu_canvas.add_child(button)
@@ -204,29 +211,22 @@ static func box(color: Color, radius: int = 12) -> StyleBoxFlat:
 	return style
 
 func build_touch_controls() -> void:
-	for direction in ["up", "left", "down", "right"]:
-		var button := Button.new()
-		button.text = direction.to_upper()
-		button.focus_mode = Control.FOCUS_NONE
-		button.add_theme_font_override("font", font)
-		button.add_theme_font_size_override("font_size", 13)
-		button.add_theme_color_override("font_color", INK)
-		button.add_theme_stylebox_override("normal", box(Color(0.035, 0.075, 0.11, 0.8), 12))
-		button.add_theme_stylebox_override("hover", box(Color(0.09, 0.18, 0.23, 0.92), 12))
-		button.add_theme_stylebox_override("pressed", box(Color("287f86"), 12))
-		button.pressed.connect(_emit_touch_turn.bind(direction))
-		add_child(button)
-		touch_directions.append(button)
-	configure_touch_button(touch_boost, "BOOST", 15)
+	configure_touch_button(touch_boost, "BOOST\n100%", 17)
+	touch_boost.add_theme_stylebox_override("normal", box(Color("14757d"), 24))
+	touch_boost.add_theme_stylebox_override("hover", box(Color("19949b"), 24))
+	touch_boost.add_theme_stylebox_override("pressed", box(Color("27b9b0"), 24))
 	touch_boost.button_down.connect(func(): touch_boost_changed.emit(true))
 	touch_boost.button_up.connect(func(): touch_boost_changed.emit(false))
 	add_child(touch_boost)
+	configure_touch_button(touch_view, "VIEW", 14)
+	touch_view.add_theme_stylebox_override("normal", box(Color("123b47", 0.94), 14))
+	touch_view.add_theme_stylebox_override("hover", box(Color("1b5860", 0.98), 14))
+	touch_view.add_theme_stylebox_override("pressed", box(Color("287f86"), 14))
+	touch_view.pressed.connect(func(): touch_view_requested.emit())
+	add_child(touch_view)
 	configure_touch_button(touch_pause, "PAUSE", 14)
 	touch_pause.pressed.connect(func(): touch_pause_requested.emit())
 	add_child(touch_pause)
-
-func _emit_touch_turn(direction: String) -> void:
-	touch_turn_requested.emit(direction)
 
 func configure_touch_button(button: Button, title: String, font_size: int) -> void:
 	button.text = title
@@ -247,6 +247,39 @@ func ui_scale_factor() -> float:
 func screen_size() -> Vector2:
 	return size / ui_scale_factor()
 
+func touch_joystick_center() -> Vector2:
+	var available := screen_size()
+	return Vector2(94.0, available.y - 108.0)
+
+func touch_joystick_radius() -> float:
+	return 78.0 * ui_scale_factor()
+
+func update_touch_joystick(position: Vector2) -> void:
+	var factor := ui_scale_factor()
+	var displacement := position - touch_joystick_center() * factor
+	var radius := 66.0 * factor
+	var distance := displacement.length()
+	joystick_vector = displacement.limit_length(radius) / radius
+	if distance < 20.0 * factor:
+		joystick_direction = ""
+		queue_redraw()
+		return
+	var direction := ""
+	if absf(displacement.x) > absf(displacement.y):
+		direction = "right" if displacement.x > 0.0 else "left"
+	else:
+		direction = "down" if displacement.y > 0.0 else "up"
+	if direction != joystick_direction:
+		joystick_direction = direction
+		touch_turn_requested.emit(direction)
+	queue_redraw()
+
+func release_touch_joystick() -> void:
+	joystick_touch_index = -1
+	joystick_vector = Vector2.ZERO
+	joystick_direction = ""
+	queue_redraw()
+
 func fit_menu(panel_height: float) -> void:
 	var available := screen_size()
 	var screen_scale := minf(1.0, minf((available.x - 32.0) / 560.0, (available.y - 24.0) / panel_height))
@@ -260,13 +293,33 @@ func update_touch_scale(factor: float) -> void:
 	if is_equal_approx(applied_touch_scale, factor):
 		return
 	applied_touch_scale = factor
-	for button in touch_directions:
-		button.add_theme_font_size_override("font_size", roundi(13.0 * factor))
-	touch_boost.add_theme_font_size_override("font_size", roundi(15.0 * factor))
+	touch_boost.add_theme_font_size_override("font_size", roundi(17.0 * factor))
+	touch_view.add_theme_font_size_override("font_size", roundi(14.0 * factor))
 	touch_pause.add_theme_font_size_override("font_size", roundi(14.0 * factor))
 	quick_restart.add_theme_font_size_override("font_size", roundi(17.0 * factor))
 
 func _input(event: InputEvent) -> void:
+	if event is InputEventScreenTouch and event.pressed and not touch_ui_enabled:
+		touch_ui_enabled = true
+		if game != null:
+			game.update_hud_visibility()
+		queue_redraw()
+	if game != null and touch_ui_enabled and game.state in ["playing", "countdown"] \
+			and not game.auto_mode and game.sim.riders[0].alive:
+		if event is InputEventScreenTouch:
+			if event.pressed and joystick_touch_index == -1 \
+					and event.position.distance_to(touch_joystick_center() * ui_scale_factor()) <= touch_joystick_radius():
+				joystick_touch_index = event.index
+				update_touch_joystick(event.position)
+				get_viewport().set_input_as_handled()
+			elif not event.pressed and event.index == joystick_touch_index:
+				release_touch_joystick()
+				get_viewport().set_input_as_handled()
+		elif event is InputEventScreenDrag and event.index == joystick_touch_index:
+			update_touch_joystick(event.position)
+			get_viewport().set_input_as_handled()
+	elif joystick_touch_index != -1:
+		release_touch_joystick()
 	if not options_open or game == null or game.state != "ready":
 		return
 	var scale := maxf(menu_canvas.scale.x, 0.01)
@@ -342,7 +395,6 @@ func _process(_delta: float) -> void:
 		var panel_height := 664.0 if game.state == "ready" and options_open else 520.0
 		fit_menu(panel_height)
 		options_scroll_offset = clampf(options_scroll_offset, 0.0, 76.0)
-		options_content.position = Vector2(0, 130.0 - options_scroll_offset)
 		primary.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
 		secondary.visible = game.state == "paused"
 		options_button.visible = game.state == "ready" and not options_open
@@ -373,19 +425,19 @@ func _process(_delta: float) -> void:
 		hud_toggle.set_pressed_no_signal(game.hud_enabled)
 		var steer_visible: bool = touch_ui_enabled and game.state in ["playing", "countdown"] and not game.auto_mode and game.sim.riders[0].alive
 		var touch_active: bool = touch_ui_enabled and game.state in ["playing", "countdown"]
-		for i in range(touch_directions.size()):
-			var button := touch_directions[i]
-			button.visible = steer_visible
-			button.size = Vector2(52, 48) * ui_factor
-			button.position = (Vector2(18, available.y - 132) + [Vector2(54, 0), Vector2(0, 54), Vector2(54, 54), Vector2(108, 54)][i]) * ui_factor
+		if not steer_visible and joystick_touch_index != -1:
+			release_touch_joystick()
 		touch_boost.visible = steer_visible
-		touch_boost.position = Vector2(available.x - 128, available.y - 76) * ui_factor
-		touch_boost.size = Vector2(110, 52) * ui_factor
+		touch_boost.position = Vector2(available.x - 166, available.y - 112) * ui_factor
+		touch_boost.size = Vector2(146, 90) * ui_factor
 		if not game.sim.riders.is_empty():
-			touch_boost.text = "BOOST %d%%" % roundi(game.sim.riders[0].pressure * 100.0)
+			touch_boost.text = "BOOST\n%d%%" % roundi(game.sim.riders[0].pressure * 100.0)
+		touch_view.visible = touch_active
+		touch_view.position = Vector2(available.x - 124, 124) * ui_factor
+		touch_view.size = Vector2(108, 44) * ui_factor
 		touch_pause.visible = touch_active
-		touch_pause.position = Vector2(available.x - 92, 16) * ui_factor
-		touch_pause.size = Vector2(76, 42) * ui_factor
+		touch_pause.position = Vector2(available.x - 78, 16) * ui_factor
+		touch_pause.size = Vector2(62, 44) * ui_factor
 	queue_redraw()
 
 func _draw() -> void:
@@ -397,12 +449,14 @@ func _draw() -> void:
 	if not game.hud_enabled and not touch_ui_enabled:
 		return
 	if touch_ui_enabled:
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE * ui_scale_factor())
+		touch_draw_active = true
 		if game.hud_enabled:
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE * ui_scale_factor())
-			touch_draw_active = true
 			draw_touch_game_hud()
-			touch_draw_active = false
-			draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+		if game.state in ["playing", "countdown"] and not game.auto_mode and game.sim.riders[0].alive:
+			draw_touch_joystick()
+		touch_draw_active = false
+		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
 	var sim = game.sim
 	var focus_id: int = game.watch_id if game.auto_mode else 0
@@ -495,12 +549,30 @@ func draw_touch_game_hud() -> void:
 	label_at("%d / %d ALIVE" % [game.sim.alive_ids().size(), game.sim.riders.size()], Vector2(30, 45), 18, INK)
 	if bounds.x >= 360.0:
 		label_at("SCORE %d   /   %d ORBS" % [rider.score, rider.orb_count], Vector2(30, 73), 15, MUTED)
-		label_at("AUTO STEERS / TAP PAUSE" if game.auto_mode else "ARROWS STEER / HOLD BOOST",
+		var status := "AUTO / TAP PAUSE" if game.auto_mode else "THUMBSTICK STEERS / HOLD BOOST"
+		if rider.combo_count > 1:
+			status = "COMBO x%.1f / %.1fs" % [rider.combo_multiplier, rider.combo_time]
+		label_at(status,
 			Vector2(30, 99), 13, ACCENT)
 	else:
 		label_at("SCORE %d" % rider.score, Vector2(30, 73), 15, MUTED)
-		label_at("AUTO / PAUSE" if game.auto_mode else "STEER / BOOST", Vector2(30, 99), 13, ACCENT)
+		var status := "AUTO / PAUSE" if game.auto_mode else "STICK / BOOST"
+		if rider.combo_count > 1:
+			status = "COMBO x%.1f" % rider.combo_multiplier
+		label_at(status, Vector2(30, 99), 13, ACCENT)
 	draw_play_messages()
+
+func draw_touch_joystick() -> void:
+	var center := touch_joystick_center()
+	var radius := 70.0
+	var knob_position := center + joystick_vector * 38.0
+	draw_circle(center, radius, Color(0.025, 0.065, 0.095, 0.76))
+	draw_arc(center, radius, 0.0, TAU, 64, Color(0.32, 0.73, 0.78, 0.88), 3.0, true)
+	for direction in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
+		draw_line(center + direction * 45.0, center + direction * 54.0,
+			Color(0.55, 0.76, 0.79, 0.64), 2.0, true)
+	draw_circle(knob_position, 29.0, Color(0.12, 0.34, 0.4, 0.98))
+	draw_arc(knob_position, 29.0, 0.0, TAU, 48, ACCENT, 2.5, true)
 
 func draw_play_messages() -> void:
 	var sim = game.sim
@@ -619,7 +691,7 @@ func draw_title_page(rect: Rect2) -> void:
 			"Bots return after a delay while other pipes keep moving.",
 			"Each life starts with a fresh score and survival streak."]
 		if touch_ui_enabled:
-			lines.append("Touch arrows / hold BOOST / PAUSE opens controls.")
+			lines.append("Thumbstick steers / hold BOOST / VIEW swaps camera / PAUSE.")
 		elif game.auto_mode:
 			lines.append("Auto respawns / F take control / C camera / Esc pause.")
 		else:
@@ -629,7 +701,7 @@ func draw_title_page(rect: Rect2) -> void:
 			"Orbs +25  /  close passes +15  /  eliminations +100  /  chain to x2.5.",
 		"Crash into walls or trails and you're out. Last pipe wins."]
 		if touch_ui_enabled:
-			lines.append("Tap PAUSE to view round controls." if game.auto_mode else "Touch arrows / hold BOOST / tap PAUSE.")
+			lines.append("Tap VIEW to swap camera / PAUSE for controls." if game.auto_mode else "Thumbstick steers / hold BOOST / tap VIEW or PAUSE.")
 		elif game.auto_mode:
 			lines.append("C camera / F take control / Esc pauses.")
 		else:
@@ -666,54 +738,57 @@ func draw_options_page(rect: Rect2) -> void:
 	centered("ROUND OPTIONS", rect.position.y + 64, 31)
 	centered("ROUND AND PLAYER SETTINGS", rect.position.y + 94, 14, ACCENT)
 	centered("Set up your pipe; swipe or scroll for camera settings.", rect.position.y + 130, 16, MUTED)
-	draw_set_transform(menu_canvas.position + Vector2(0, (130.0 - options_scroll_offset) * menu_canvas.scale.y),
+	draw_set_transform(menu_canvas.position + Vector2(0, (OPTIONS_VIEW_TOP - options_scroll_offset) * menu_canvas.scale.y),
 		0.0, menu_canvas.scale)
-	draw_option_label("BOT COUNT", Vector2(38, 40), 15, MUTED)
-	draw_option_label("ARENA SIZE", Vector2(291, 40), 15, MUTED)
-	bot_selector.position = Vector2(38, 52)
+	draw_option_label("BOT COUNT", Vector2(38, 40.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("ARENA SIZE", Vector2(291, 40.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	bot_selector.position = Vector2(38, 52.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
 	bot_selector.size = Vector2(231, 46)
 	bot_selector.select(bot_selector.get_item_index(game.bot_count))
-	size_selector.position = Vector2(291, 52)
+	size_selector.position = Vector2(291, 52.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
 	size_selector.size = Vector2(231, 46)
 	size_selector.select(size_selector.get_item_index(game.arena_width))
-	draw_option_label("PIPE NAME", Vector2(38, 123), 15, MUTED)
+	draw_option_label("PIPE NAME", Vector2(38, 123.0 - OPTIONS_VIEW_INSET), 15, MUTED)
 	if not player_name_entry.has_focus() and player_name_entry.text != game.player_name:
 		player_name_entry.text = game.player_name
-	player_name_entry.position = Vector2(38, 135)
+	player_name_entry.position = Vector2(38, 135.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
 	player_name_entry.size = Vector2(484, 46)
-	draw_option_label("PIPE COLOR", Vector2(38, 207), 15, MUTED)
-	draw_option_label("PIPE PATTERN", Vector2(291, 207), 15, MUTED)
+	draw_option_label("PIPE COLOR", Vector2(38, 207.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("PIPE PATTERN", Vector2(291, 207.0 - OPTIONS_VIEW_INSET), 15, MUTED)
 	if player_color_picker.color != game.player_color:
 		player_color_picker.color = game.player_color
-	player_color_picker.position = Vector2(38, 219)
+	player_color_picker.position = Vector2(38, 219.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
 	player_color_picker.size = Vector2(231, 46)
 	player_color_label.position = player_color_picker.position
 	player_color_label.size = player_color_picker.size
 	var label_color := Color("071d23") if game.player_color.get_luminance() > 0.48 else INK
 	player_color_label.add_theme_color_override("font_color", label_color)
-	pattern_selector.position = Vector2(291, 219)
+	pattern_selector.position = Vector2(291, 219.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
 	pattern_selector.size = Vector2(231, 46)
 	pattern_selector.select(pattern_selector.get_item_index(game.player_pattern))
-	pipe_preview.position = Vector2(38, 281)
+	pipe_preview.position = Vector2(38, 281.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
 	pipe_preview.size = Vector2(484, 96)
-	var preview_top := maxf(pipe_preview.position.y, options_scroll_offset)
-	var preview_bottom := minf(pipe_preview.position.y + pipe_preview.size.y,
+	var preview_content_top := 281.0 - OPTIONS_VIEW_INSET
+	var preview_top := maxf(preview_content_top, options_scroll_offset)
+	var preview_bottom := minf(preview_content_top + pipe_preview.size.y,
 		options_scroll_offset + options_content.size.y)
 	if preview_bottom > preview_top:
 		panel(Rect2(Vector2(pipe_preview.position.x, preview_top),
 			Vector2(pipe_preview.size.x, preview_bottom - preview_top)), Color("162536"))
 	if not is_equal_approx(fov_slider.value, game.camera.base_fov):
 		fov_slider.set_value_no_signal(game.camera.base_fov)
-	draw_option_label("FIELD OF VIEW", Vector2(38, 405), 15, MUTED)
-	draw_option_label("%d°" % roundi(fov_slider.value), Vector2(466, 405), 15, ACCENT, true)
-	fov_slider.position = Vector2(38, 414)
+	draw_option_label("FIELD OF VIEW", Vector2(38, 405.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("%d°" % roundi(fov_slider.value),
+		Vector2(466, 405.0 - OPTIONS_VIEW_INSET), 15, ACCENT, true)
+	fov_slider.position = Vector2(38, 414.0 - OPTIONS_VIEW_INSET - options_scroll_offset)
 	fov_slider.size = Vector2(484, 22)
-	var rail_position := fov_slider.position + Vector2(8, 9)
+	var rail_position := Vector2(fov_slider.position.x + 8.0, 423.0 - OPTIONS_VIEW_INSET)
 	var rail_width := fov_slider.size.x - 16
-	draw_style_box(box(Color("23384d"), 3), Rect2(rail_position, Vector2(rail_width, 4)))
-	var progress := (fov_slider.value - fov_slider.min_value) / (fov_slider.max_value - fov_slider.min_value)
-	if progress > 0.0:
-		draw_style_box(box(ACCENT.darkened(0.2), 3), Rect2(rail_position, Vector2(rail_width * progress, 4)))
+	if rail_position.y >= options_scroll_offset and rail_position.y + 4.0 <= options_scroll_offset + options_content.size.y:
+		draw_style_box(box(Color("23384d"), 3), Rect2(rail_position, Vector2(rail_width, 4)))
+		var progress := (fov_slider.value - fov_slider.min_value) / (fov_slider.max_value - fov_slider.min_value)
+		if progress > 0.0:
+			draw_style_box(box(ACCENT.darkened(0.2), 3), Rect2(rail_position, Vector2(rail_width * progress, 4)))
 	draw_set_transform(menu_canvas.position, 0.0, menu_canvas.scale)
 	options_back.visible = true
 	options_back.text = "DONE"
