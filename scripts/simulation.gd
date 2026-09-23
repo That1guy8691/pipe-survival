@@ -71,6 +71,7 @@ func reset(seed_value: int = 0, bot_count: int = DEFAULT_BOTS, width: int = 60,
 			"source_cell": cell, "source_forward": forward,
 			"alive": true, "length": 0, "death_tick": -1, "cause": "",
 			"score": 0, "survival_time": 0.0, "orb_count": 0, "eliminations": 0,
+			"combo_count": 0, "combo_multiplier": 1.0, "combo_time": 0.0, "near_miss_active": false,
 			"pressure": 1.0, "boosting": false, "boost_locked": false,
 			"name": _next_bot_name(round_names) if i > 0 else player_name,
 			"color": color_for(i) if i > 0 else player_color})
@@ -197,6 +198,10 @@ func respawn_rider(index: int) -> bool:
 	rider.death_tick = -1
 	rider.cause = ""
 	rider.survival_time = 0.0
+	rider.combo_count = 0
+	rider.combo_multiplier = 1.0
+	rider.combo_time = 0.0
+	rider.near_miss_active = false
 	rider.pressure = 1.0
 	rider.boosting = false
 	rider.boost_locked = false

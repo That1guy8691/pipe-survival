@@ -205,12 +205,17 @@ func on_completed(moves: Array[Dictionary]) -> void:
 				motion.boost_requested = false
 				motion.turn_queue.clear()
 		pipes.animate_rider(move.id, 1.0)
-		if move.id == 0 and move.has("orb_points"):
-			score_message = "+25  ORB COLLECTED"
-			score_message_time = 1.5
-		if move.get("credited_to", -1) == 0:
-			score_message = "+100  ELIMINATION"
-			score_message_time = 2.0
+	for award: Dictionary in sim.scoring.last_awards:
+		if award.rider_id != 0:
+			continue
+		var event_text := ""
+		for event_name: String in award.events:
+			var label := "ORB COLLECTED" if event_name == "ORB" else event_name
+			event_text += (" + " if not event_text.is_empty() else "") + label
+		score_message = "+%d  %s" % [award.points, event_text]
+		if award.combo_count > 1:
+			score_message += "  /  x%.1f COMBO" % award.multiplier
+		score_message_time = 2.0 if "ELIMINATION" in award.events else 1.5
 	pipes.commit(moves)
 	orbs.sync(sim.scoring)
 	if not sim.riders[watch_id].alive:

@@ -421,7 +421,10 @@ func _draw() -> void:
 	panel(Rect2(24, size.y - 192, 252, 136))
 	label_at(game.sim.rider_name(focus_id) + " / SCORE" if game.auto_mode else "YOUR SCORE", Vector2(44, size.y - 161), 17, MUTED)
 	label_at(str(focus_rider.score), Vector2(43, size.y - 112), 44, Color("ffdb77"), true)
-	label_at("%d ORBS / %d ELIMINATIONS" % [focus_rider.orb_count, focus_rider.eliminations], Vector2(44, size.y - 77), 15, MUTED)
+	var score_detail := "%d ORBS / %d ELIMINATIONS" % [focus_rider.orb_count, focus_rider.eliminations]
+	if focus_rider.combo_count > 1:
+		score_detail = "COMBO x%.1f / %.1fs" % [focus_rider.combo_multiplier, focus_rider.combo_time]
+	label_at(score_detail, Vector2(44, size.y - 77), 15, ACCENT if focus_rider.combo_count > 1 else MUTED)
 	draw_boost(focus_rider)
 	draw_play_messages()
 
@@ -623,7 +626,7 @@ func draw_title_page(rect: Rect2) -> void:
 			lines.append("WASD steer / Shift boost / R restart / Esc pause.")
 	else:
 		lines = ["Steer through the cube; the trail you leave stays behind.",
-			"Orbs +25  /  survival +1 per second  /  eliminations +100.",
+			"Orbs +25  /  close passes +15  /  eliminations +100  /  chain to x2.5.",
 		"Crash into walls or trails and you're out. Last pipe wins."]
 		if touch_ui_enabled:
 			lines.append("Tap PAUSE to view round controls." if game.auto_mode else "Touch arrows / hold BOOST / tap PAUSE.")

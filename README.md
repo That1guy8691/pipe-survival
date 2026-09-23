@@ -97,14 +97,19 @@ are hidden so they do not block the view. Turns follow the rounded elbow path.
 | Action | Points |
 | --- | --- |
 | Collect a gold orb | 25 |
+| Thread a tight near-miss beside a pipe trail | 15 |
 | Survive a full second | 1 |
 | An opponent crashes into your pipe while you remain alive | 100 |
 | Win the round | 250 |
 
-Orbs replenish in empty cells. Bots pursue them too. The leaderboard shows score
-leaders and always includes you. Self-collisions, head-on draws, and collisions
-with an already eliminated owner's pipe award no elimination credit. Survival
-points stop when you die; the last surviving pipe wins regardless of score.
+Near-misses count once when you enter a cell beside a pipe trail with at most two
+open legal exits; leaving the tight section rearms the bonus. Orbs, near-misses, and
+eliminations chain when they happen within four seconds, raising those event rewards
+from 1x up to 2.5x. Death or an expired timer ends the combo. Survival and win points
+stay fixed. Orbs replenish in empty cells. Bots pursue them too. The leaderboard
+shows score leaders and always includes you. Self-collisions, head-on draws, and
+collisions with an already eliminated owner's pipe award no elimination credit.
+Survival points stop when you die; the last surviving pipe wins regardless of score.
 
 ## Rules and initial tuning
 
