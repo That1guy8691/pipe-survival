@@ -29,3 +29,5 @@ renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 anti_aliasing/quality/msaa_3d=2
 environment/defaults/default_clear_color=Color(0.018, 0.028, 0.055, 1)
+; Reduce WebGL lighting shader compilation cost on browser startup.
+shading/overrides/force_vertex_shading.web=true

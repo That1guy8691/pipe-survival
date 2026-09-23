@@ -10,8 +10,9 @@ Both dropdowns and the Start, Resume, and Back to Title buttons support mouse cl
 Game Options also lets you choose Solid, Stripes, or Spots for your pipe beside the
 color picker. The live 3D preview shows your color and pattern on straight sections
 and a curved elbow. Patterns keep the collars plain and stay with your pipe across
-rounds and Endless respawns; bots retain their solid colors. Like your name and color,
-the selection lasts for the current game session.
+rounds and Endless respawns. Bots randomly choose Solid, Stripes, or Spots each round
+and retain that pattern when they respawn. Like your name and color, your selection
+lasts for the current game session.
 Pipes grow from colored, bolted wall inlets distributed across all six faces.
 Pickups and bot paths use the outer lanes as well as the center of the cube.
 Turn on Auto Mode to watch every pipe steer and boost itself. Completed rounds
@@ -22,6 +23,8 @@ restart after five seconds, keeping the selected arena, bot count, and camera vi
 [Play PIPE / Survival](https://that1guy8691.github.io/pipe-survival/)
 
 No download is needed. Click the game to focus it, then use the controls below.
+The browser build uses simpler vertex lighting to reduce shader startup time.
+Desktop keeps its existing lighting. Web exports exclude local build artifacts.
 
 ## Run the project on desktop
 
@@ -121,7 +124,8 @@ points stop when you die; the last surviving pipe wins regardless of score.
 
 The collision model uses occupied grid cells. Visible gaps do not create additional
 off-grid routes. Arena faces use a wire grid so overview cameras can see inside.
-The initial title backdrop is a simulated round; starting clears it completely.
+The initial title backdrop builds a simulated round over successive frames so the
+menu can accept input immediately. Starting cancels this work and clears it completely.
 
 ## Code
 
@@ -144,6 +148,7 @@ Run using the Godot 4.7 console executable from this project directory:
 
 ```powershell
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/rules_test.gd
+Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/startup_test.gd
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/features_test.gd
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/endless_mode_test.gd
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/pipe_patterns_test.gd

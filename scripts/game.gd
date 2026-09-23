@@ -9,6 +9,7 @@ const Hud = preload("res://scripts/hud.gd")
 const OrbRenderer = preload("res://scripts/orb_renderer.gd")
 const BOT_RESPAWN_DELAY := 2.5
 const RESPAWN_RETRY_DELAY := 0.75
+const TITLE_PREVIEW_STEPS := 60
 var sim := Rules.new()
 var motion := Motion.new(sim)
 var pipes := PipeRenderer.new()
@@ -41,6 +42,7 @@ var fov_message_time := 0.0
 var fov_message := ""
 var respawn_timers: Array[float] = []
 var player_respawn_pending := false
+var title_preview_steps_left := 0
 
 func _ready() -> void:
 	DisplayServer.window_set_min_size(Vector2i(960, 600))
@@ -71,6 +73,7 @@ func _ready() -> void:
 		add_child(driver)
 
 func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
+	title_preview_steps_left = 0
 	sim.endless_mode = endless_mode and not title_preview
 	sim.reset(seed_value, bot_count, arena_width, player_name, player_color)
 	respawn_timers.clear()
@@ -104,14 +107,20 @@ func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
 func show_title() -> void:
 	reset_world(814, true)
 	state = "ready"
+	title_preview_steps_left = TITLE_PREVIEW_STEPS
+	camera.overview = true
+
+func advance_title_preview() -> void:
+	if title_preview_steps_left == 0:
+		return
+	# Let the menu draw and accept input between backdrop steps, including on Web.
 	motion.autoplay = true
-	for tick in range(60):
-		motion.advance(Rules.STEP_TIME)
-		if sim.finished:
-			break
+	motion.advance(Rules.STEP_TIME)
+	title_preview_steps_left -= 1
+	if sim.finished:
+		title_preview_steps_left = 0
 	state = "ready"
 	motion.autoplay = auto_mode
-	camera.overview = true
 
 func start_round(seed_value: int = 0) -> void:
 	reset_world(seed_value)
@@ -213,7 +222,9 @@ func on_completed(moves: Array[Dictionary]) -> void:
 
 func _process(delta: float) -> void:
 	fov_message_time = maxf(0.0, fov_message_time - delta)
-	if state == "countdown":
+	if state == "ready":
+		advance_title_preview()
+	elif state == "countdown":
 		countdown -= delta
 		if countdown <= 0.0:
 			state = "playing"

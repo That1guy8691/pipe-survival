@@ -5,6 +5,7 @@ const Geometry = preload("res://scripts/pipe_geometry.gd")
 const Inlet = preload("res://scripts/pipe_inlet.gd")
 const Appearance = preload("res://scripts/pipe_appearance.gd")
 var player_pattern := Appearance.Pattern.SOLID
+var pattern_rng := RandomNumberGenerator.new()
 var model
 var meshes: Array[ArrayMesh] = []
 var batches: Array = []
@@ -18,6 +19,7 @@ var inlets: Array[Node3D] = []
 var inlet_materials: Array[StandardMaterial3D] = []
 
 func _ready() -> void:
+	pattern_rng.randomize()
 	meshes = [Geometry.make_tube(false), Geometry.make_tube(true)]
 
 func ensure_count(total: int) -> void:
@@ -86,11 +88,14 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 		plans.append({})
 		var rider: Dictionary = model.riders[i]
 		var pipe_color: Color = model.rider_color(i)
+		# Pick once per round; respawns reuse these materials and their pattern.
+		var pattern := player_pattern if i == 0 else pattern_rng.randi_range(
+			Appearance.Pattern.SOLID, Appearance.Pattern.SPOTS)
 		for batch: MultiMeshInstance3D in batches[i]:
-			Appearance.apply(batch.material_override, pipe_color, player_pattern if i == 0 else 0)
+			Appearance.apply(batch.material_override, pipe_color, pattern)
 		inlet_materials[i].albedo_color = pipe_color
 		inlet_materials[i].emission = pipe_color * 0.13
-		Appearance.apply(active_materials[i], pipe_color, player_pattern if i == 0 else 0)
+		Appearance.apply(active_materials[i], pipe_color, pattern)
 		var head_material := heads[i].material_override as StandardMaterial3D
 		head_material.albedo_color = pipe_color.lightened(0.25)
 		head_material.emission = pipe_color * 0.5

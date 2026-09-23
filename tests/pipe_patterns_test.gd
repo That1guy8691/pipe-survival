@@ -54,8 +54,11 @@ func run() -> void:
 					"Reset must apply the player pattern to both trail meshes")
 				check(batch.material_override.get_shader_parameter("pipe_color") == game.player_color,
 					"Reset must preserve the selected base color")
-			check(game.pipes.active_materials[1].get_shader_parameter("pattern") == 0,
-				"Player customization must leave bot pipes solid")
+			var bot_pattern: int = game.pipes.active_materials[1].get_shader_parameter("pattern")
+			check(bot_pattern in range(3), "Bots must use a supported random pattern")
+			for batch in game.pipes.batches[1]:
+				check(batch.material_override.get_shader_parameter("pattern") == bot_pattern,
+					"Bot growing and completed sections must share their random pattern")
 			var moves: Array[Dictionary] = [
 				{"id": 0, "cell": Vector3i(10, 10, 11), "incoming": Vector3i.FORWARD, "outgoing": Vector3i.FORWARD, "died": false},
 				{"id": 0, "cell": Vector3i(10, 10, 10), "incoming": Vector3i.FORWARD, "outgoing": Vector3i.RIGHT, "died": false}]
@@ -98,5 +101,31 @@ func run() -> void:
 					"Endless restart restores the growing pipe")
 				check(active.get_shader_parameter("pattern") == pattern,
 					"Endless restart retains the selected pattern")
+	check_bot_patterns(game)
 	print("PIPE PATTERNS: %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)
+
+func check_bot_patterns(game) -> void:
+	game.bot_count = 31
+	game.endless_mode = true
+	game.pipes.pattern_rng.seed = 518
+	game.start_round(812)
+	game.state = "playing"
+	var seen := {}
+	for i in range(1, game.sim.riders.size()):
+		var material: ShaderMaterial = game.pipes.active_materials[i]
+		var pattern: int = material.get_shader_parameter("pattern")
+		seen[pattern] = true
+		for batch in game.pipes.batches[i]:
+			check(batch.material_override.get_shader_parameter("pattern") == pattern,
+				"Bot %d must keep its pattern across straight and elbow sections" % i)
+		game.sim.remove_rider_trail(i)
+		game.sim.riders[i].alive = false
+		game.pipes.remove_rider(i)
+		game.respawn_timers[i] = 0.0
+		game.advance_endless_respawns(0.01)
+		check(game.sim.riders[i].alive, "Bot %d must respawn" % i)
+		check(material.get_shader_parameter("pattern") == pattern,
+			"Bot %d must keep its random pattern after respawning" % i)
+	check(seen.has(0) and seen.has(1) and seen.has(2),
+		"Seeded bot selection must include Solid, Stripes, and Spots")
