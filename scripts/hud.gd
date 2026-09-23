@@ -280,7 +280,7 @@ func _input(event: InputEvent) -> void:
 		elif not event.pressed and event.index == options_drag_index:
 			options_drag_index = -1
 	elif event is InputEventScreenDrag and event.index == options_drag_index:
-		var drag_distance := options_drag_start.y - event.position.y
+		var drag_distance: float = options_drag_start.y - event.position.y
 		if absf(drag_distance) > 6.0:
 			options_scroll_offset = clampf(options_drag_start_scroll + drag_distance / scale, 0.0, 76.0)
 			get_viewport().set_input_as_handled()
@@ -299,7 +299,7 @@ func _input(event: InputEvent) -> void:
 	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and not event.pressed and options_drag_index == -2:
 		options_drag_index = -1
 	elif event is InputEventMouseMotion and options_drag_index == -2 and Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-		var drag_distance := options_drag_start.y - event.position.y
+		var drag_distance: float = options_drag_start.y - event.position.y
 		if absf(drag_distance) > 6.0:
 			options_scroll_offset = clampf(options_drag_start_scroll + drag_distance / scale, 0.0, 76.0)
 			get_viewport().set_input_as_handled()
