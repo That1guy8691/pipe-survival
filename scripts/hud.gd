@@ -48,6 +48,7 @@ var applied_touch_scale := -1.0
 var joystick_touch_index := -1
 var joystick_vector := Vector2.ZERO
 var joystick_direction := ""
+var joystick_pending_direction := ""
 var options_scroll_offset := 0.0
 var options_drag_index := -1
 var options_drag_start := Vector2.ZERO
@@ -249,10 +250,10 @@ func screen_size() -> Vector2:
 
 func touch_joystick_center() -> Vector2:
 	var available := screen_size()
-	return Vector2(94.0, available.y - 108.0)
+	return Vector2(120.0, available.y - 108.0)
 
 func touch_joystick_radius() -> float:
-	return 78.0 * ui_scale_factor()
+	return 94.0 * ui_scale_factor()
 
 func update_touch_joystick(position: Vector2) -> void:
 	var factor := ui_scale_factor()
@@ -260,8 +261,9 @@ func update_touch_joystick(position: Vector2) -> void:
 	var radius := 66.0 * factor
 	var distance := displacement.length()
 	joystick_vector = displacement.limit_length(radius) / radius
-	if distance < 20.0 * factor:
+	if distance < 12.0 * factor:
 		joystick_direction = ""
+		joystick_pending_direction = ""
 		queue_redraw()
 		return
 	var direction := ""
@@ -271,13 +273,18 @@ func update_touch_joystick(position: Vector2) -> void:
 		direction = "down" if displacement.y > 0.0 else "up"
 	if direction != joystick_direction:
 		joystick_direction = direction
-		touch_turn_requested.emit(direction)
+		if game.turn_queue.size() >= 2:
+			joystick_pending_direction = direction
+		else:
+			joystick_pending_direction = ""
+			touch_turn_requested.emit(direction)
 	queue_redraw()
 
 func release_touch_joystick() -> void:
 	joystick_touch_index = -1
 	joystick_vector = Vector2.ZERO
 	joystick_direction = ""
+	joystick_pending_direction = ""
 	queue_redraw()
 
 func fit_menu(panel_height: float) -> void:
@@ -390,6 +397,12 @@ func panel(rect: Rect2, color: Color = Color(0.025, 0.055, 0.095, 0.9)) -> void:
 
 func _process(_delta: float) -> void:
 	if game != null:
+		if joystick_pending_direction != "" and joystick_touch_index != -1 \
+				and game.state in ["playing", "countdown"] and not game.auto_mode \
+				and game.sim.riders[0].alive and game.turn_queue.size() < 2:
+			var pending_direction := joystick_pending_direction
+			joystick_pending_direction = ""
+			touch_turn_requested.emit(pending_direction)
 		if game.state != "ready":
 			options_open = false
 		var panel_height := 664.0 if game.state == "ready" and options_open else 520.0
