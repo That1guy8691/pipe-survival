@@ -80,6 +80,11 @@ func run() -> void:
 	await capture("hud-auto.png")
 	key(KEY_H)
 	game._process(0.0)
+	if game.collision_feedback_time > 0.0:
+		check(game.hud.visible and not game.collision_feedback_label.is_empty(),
+			"Collision feedback stays visible even when the HUD is hidden")
+		game.collision_feedback_time = 0.0
+		game._process(0.0)
 	check(not game.hud.visible and no_world_labels(), "Auto Mode can show just the arena with no interface or labels")
 	await capture("hud-hidden-auto.png")
 	key(KEY_TAB)

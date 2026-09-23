@@ -6,6 +6,7 @@ uniform vec4 accent_color : source_color;
 uniform int pattern = 0;
 uniform float segment_length = 2.0;
 uniform float fill = 1.0;
+uniform float display_brightness = 1.0;
 
 void fragment() {
 	if (UV.y > fill) discard;
@@ -24,6 +25,7 @@ void fragment() {
 	// Unpainted collars separate pieces whose local UV frames change at turns.
 	marking *= smoothstep(0.125, 0.145, UV.y) * (1.0 - smoothstep(0.855, 0.875, UV.y));
 	vec3 color = mix(pipe_color.rgb, accent_color.rgb, marking);
+	color *= display_brightness;
 	ALBEDO = color;
 	METALLIC = 0.62;
 	ROUGHNESS = 0.28;

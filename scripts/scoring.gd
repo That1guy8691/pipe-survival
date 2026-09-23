@@ -1,6 +1,11 @@
 extends RefCounted
 
 const ORB_POINTS := 25
+const BLUE_ORB_POINTS := 15
+const VIOLET_ORB_POINTS := 50
+const BLUE_ORB_COLOR := Color("54caff")
+const GOLD_ORB_COLOR := Color("ffdb77")
+const VIOLET_ORB_COLOR := Color("c879ff")
 const NEAR_MISS_POINTS := 15
 const ELIMINATION_POINTS := 100
 const WIN_POINTS := 250
@@ -43,11 +48,12 @@ func resolve(sim, moves: Array[Dictionary]) -> void:
 				move["near_miss"] = true
 				_queue_reward(rewards, move.id, "NEAR MISS", NEAR_MISS_POINTS)
 			rider.near_miss_active = in_tight_pass
-		if not move.died and orbs.has(move.target):
+		var orb_points := int(orbs.get(move.target, 0))
+		if not move.died and orb_points > 0:
 			rider.orb_count += 1
-			move["orb_points"] = ORB_POINTS
+			move["orb_points"] = orb_points
 			orbs.erase(move.target)
-			_queue_reward(rewards, move.id, "ORB", ORB_POINTS)
+			_queue_reward(rewards, move.id, "%s ORB" % orb_name(orb_points), orb_points)
 			revision += 1
 		var owner: int = move.get("pipe_owner", -1)
 		if move.died and owner >= 0 and owner != move.id and sim.riders[owner].alive:
@@ -117,15 +123,46 @@ func refill(sim) -> void:
 				exits += 1
 		if exits < 3:
 			continue
-		orbs[cell] = ORB_POINTS
+		orbs[cell] = roll_orb_points(sim.rng)
 		revision += 1
 
-func nearest(cell: Vector3i) -> Vector3i:
+func best_target(cell: Vector3i) -> Vector3i:
 	var best := cell
-	var distance := INF
+	var best_utility := -INF
 	for candidate: Vector3i in orbs:
-		var delta := Vector3(candidate - cell).length_squared()
-		if delta < distance:
-			distance = delta
+		var distance := Vector3(candidate - cell).length()
+		var value_weight := sqrt(float(orbs[candidate]) / float(ORB_POINTS))
+		var utility := value_weight / (distance + 4.0)
+		if utility > best_utility:
+			best_utility = utility
 			best = candidate
 	return best
+
+static func roll_orb_points(rng: RandomNumberGenerator) -> int:
+	var roll := rng.randf()
+	if roll < 0.20:
+		return BLUE_ORB_POINTS
+	if roll < 0.90:
+		return ORB_POINTS
+	return VIOLET_ORB_POINTS
+
+static func orb_name(points: int) -> String:
+	match points:
+		BLUE_ORB_POINTS: return "BLUE"
+		ORB_POINTS: return "GOLD"
+		VIOLET_ORB_POINTS: return "VIOLET"
+	return "UNKNOWN"
+
+static func orb_color(points: int) -> Color:
+	match points:
+		BLUE_ORB_POINTS: return BLUE_ORB_COLOR
+		ORB_POINTS: return GOLD_ORB_COLOR
+		VIOLET_ORB_POINTS: return VIOLET_ORB_COLOR
+	return Color.WHITE
+
+static func orb_scale(points: int) -> float:
+	match points:
+		BLUE_ORB_POINTS: return 0.84
+		ORB_POINTS: return 1.0
+		VIOLET_ORB_POINTS: return 1.2
+	return 1.0

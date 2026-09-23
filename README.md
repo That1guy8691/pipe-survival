@@ -41,6 +41,8 @@ same project when changes are pushed to `main`.
 | D | Turn right relative to your pipe |
 | Arrow keys | Nudge the camera orbit or look direction |
 | C | Cycle chase / first person / overview |
+| V in overview | Cycle normal / highlight / bright ends pipe display |
+| Tab / Shift+Tab | In overview, highlight the next / previous living pipe; otherwise follow survivors in Auto Mode or after elimination |
 | Q / E during a round | Decrease / increase the field of view by 2° |
 | F / Auto Mode button | Toggle automatic steering, boost, and round replay |
 | H / HUD button | Hide or restore the gameplay interface and all floating labels |
@@ -49,7 +51,9 @@ same project when changes are pushed to `main`.
 | Mouse wheel | Zoom in overview |
 | Escape | Pause / resume |
 | R | Restart Survival; respawn yourself after a crash in Endless |
-| Tab / Shift+Tab | Follow the next / previous survivor in Auto Mode or after elimination |
+
+On touch screens, tap VIEW to change cameras. In overview, PIPES cycles display modes
+and NEXT highlights another living pipe.
 
 Endless keeps the cube size fixed. A rider's death clears only that rider's trail;
 bots return after a short delay at a safe open wall inlet. After a player crash, press
@@ -70,8 +74,11 @@ relative to the pipe.
 Losing window focus pauses a manually controlled round.
 Auto Mode keeps running without focus; Escape still pauses it, including the
 five-second result countdown. It starts in a slowly rotating overview. C changes
-views, and Tab / Shift+Tab select the pipe to follow in any view. The score and boost
-meter show the followed pipe. If it crashes, the camera follows a survivor.
+views. In overview, V switches between the full-color map, a selected-pipe highlight,
+and a view with faint trails and brighter pipe ends. Tab / Shift+Tab choose the next
+or previous living pipe; in Auto Mode, the camera, score, and boost meter follow it.
+Outside overview, Tab / Shift+Tab retain their survivor-follow behavior. If the
+followed pipe crashes, the camera follows a survivor.
 Switching back to manual returns control to your cyan pipe if it is still alive;
 otherwise, R starts a fresh round. Driver changes take effect at the next junction.
 
@@ -96,7 +103,9 @@ are hidden so they do not block the view. Turns follow the rounded elbow path.
 
 | Action | Points |
 | --- | --- |
+| Collect a blue orb | 15 |
 | Collect a gold orb | 25 |
+| Collect a violet orb | 50 |
 | Thread a tight near-miss beside a pipe trail | 15 |
 | Survive a full second | 1 |
 | An opponent crashes into your pipe while you remain alive | 100 |
@@ -105,10 +114,14 @@ are hidden so they do not block the view. Turns follow the rounded elbow path.
 Near-misses count once when you enter a cell beside a pipe trail with at most two
 open legal exits; leaving the tight section rearms the bonus. Orbs, near-misses, and
 eliminations chain when they happen within four seconds, raising those event rewards
-from 1x up to 2.5x. Death or an expired timer ends the combo. Survival and win points
-stay fixed. Orbs replenish in empty cells. Bots pursue them too. The leaderboard
-shows score leaders and always includes you. Self-collisions, head-on draws, and
-collisions with an already eliminated owner's pipe award no elimination credit.
+from 1x up to 2.5x. Death or an expired timer ends the combo. Orb colors show their
+base value: blue is 15, gold is 25, and violet is 50. Gold is the most common; blue
+appears about 20% of the time and violet about 10%, keeping the average near 25
+points per orb. Bots weigh value against distance while still favoring open space and
+safe routes. Survival and win points stay fixed. Orbs replenish in empty cells. The
+leaderboard shows score leaders and always includes you. Self-collisions, head-on
+draws, and collisions with an already eliminated owner's pipe award no elimination
+credit.
 Survival points stop when you die; the last surviving pipe wins regardless of score.
 
 ## Rules and initial tuning

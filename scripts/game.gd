@@ -29,6 +29,8 @@ var arena: Node3D
 var turn_queue: Array[String]:
 	get: return motion.turn_queue
 var watch_id := 0
+var overview_focus_id := 0
+var overview_style := PipeRenderer.OverviewStyle.NORMAL
 var clearance := 10
 var automated := false
 var auto_mode := false
@@ -69,6 +71,8 @@ func _ready() -> void:
 	hud.touch_turn_requested.connect(queue_turn)
 	hud.touch_boost_changed.connect(set_touch_boost)
 	hud.touch_view_requested.connect(swap_camera_view)
+	hud.touch_overview_style_requested.connect(cycle_overview_style)
+	hud.touch_overview_focus_requested.connect(func(): cycle_overview_focus(1))
 	hud.touch_pause_requested.connect(toggle_pause)
 	motion.completed.connect(on_completed)
 	motion.planned.connect(on_planned)
@@ -112,6 +116,7 @@ func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
 	orbs.sync(sim.scoring)
 	boost_held = false
 	watch_id = 0
+	overview_focus_id = 0
 	score_message_time = 0.0
 	fov_message_time = 0.0
 	auto_restart_left = 5.0
@@ -163,6 +168,8 @@ func set_auto_mode(enabled: bool) -> void:
 	if not enabled and sim.riders[0].alive:
 		watch_id = 0
 		camera.initialized = false
+	overview_focus_id = watch_id if enabled or not sim.riders[0].alive else 0
+	update_pipe_display()
 
 func set_hud_enabled(enabled: bool) -> void:
 	hud_enabled = enabled
@@ -313,6 +320,7 @@ func _process(delta: float) -> void:
 	for i in range(sim.riders.size()):
 		if sim.riders[i].alive:
 			pipes.animate_rider(i, motion.progress(i))
+	update_pipe_display()
 	if not pipes.plans.is_empty() and (not endless_mode or sim.riders[watch_id].alive):
 		if crash_view_time > 0.0:
 			camera.boosting = false
@@ -371,6 +379,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				start_round()
 		elif key == KEY_C:
 			swap_camera_view()
+		elif key == KEY_V and camera.overview and state != "ready" and crash_view_time <= 0.0:
+			cycle_overview_style()
+		elif key == KEY_TAB and camera.overview and state != "ready" and crash_view_time <= 0.0:
+			cycle_overview_focus(-1 if event.shift_pressed else 1)
 		elif key == KEY_TAB and (auto_mode or not sim.riders[0].alive):
 			var alive := sim.alive_ids()
 			if not alive.is_empty():
@@ -408,8 +420,46 @@ func set_touch_boost(held: bool) -> void:
 
 func swap_camera_view() -> void:
 	camera.toggle()
+	if camera.overview and (auto_mode or not sim.riders[0].alive):
+		overview_focus_id = watch_id
+	update_pipe_display()
 	fov_message = camera.view_name()
 	fov_message_time = 1.5
+
+func update_pipe_display() -> void:
+	var active_overview := camera.overview and state != "ready" and crash_view_time <= 0.0
+	pipes.set_overview_style(overview_style if active_overview else PipeRenderer.OverviewStyle.NORMAL,
+		overview_focus_id)
+	hud.queue_redraw()
+
+func cycle_overview_style() -> void:
+	overview_style = (overview_style + 1) % PipeRenderer.OverviewStyle.size()
+	update_pipe_display()
+	fov_message = "PIPE VIEW / " + overview_style_name()
+	fov_message_time = 1.5
+
+func cycle_overview_focus(step: int) -> void:
+	var alive := sim.alive_ids()
+	if alive.is_empty():
+		return
+	var index := alive.find(overview_focus_id)
+	if index < 0:
+		index = 0 if step > 0 else alive.size()
+	index = (index + step + alive.size()) % alive.size()
+	overview_focus_id = alive[index]
+	if auto_mode or not sim.riders[0].alive:
+		watch_id = overview_focus_id
+		camera.initialized = false
+	overview_style = PipeRenderer.OverviewStyle.HIGHLIGHT
+	update_pipe_display()
+	fov_message = "HIGHLIGHT / " + sim.rider_name(overview_focus_id).to_upper()
+	fov_message_time = 1.5
+
+func overview_style_name() -> String:
+	match overview_style:
+		PipeRenderer.OverviewStyle.HIGHLIGHT: return "HIGHLIGHT"
+		PipeRenderer.OverviewStyle.ENDS: return "BRIGHT ENDS"
+	return "NORMAL"
 
 func adjust_camera_fov(change: float) -> void:
 	camera.set_base_fov(camera.base_fov + change)

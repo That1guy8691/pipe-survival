@@ -261,7 +261,7 @@ func bot_direction(index: int) -> Vector3i:
 	var rider: Dictionary = riders[index]
 	var best: Vector3i = rider.forward
 	var best_score := -INF
-	var nearest_orb := scoring.nearest(rider.cell)
+	var target_orb := scoring.best_target(rider.cell)
 	for direction: Vector3i in legal_directions(rider):
 		var target: Vector3i = rider.cell + direction
 		if not is_open(target):
@@ -281,11 +281,12 @@ func bot_direction(index: int) -> Vector3i:
 		score += rng.randf_range(0.0, 2.3)
 		if direction == rider.forward:
 			score += 1.8
-		var toward_orb := Vector3(nearest_orb - rider.cell)
+		var toward_orb := Vector3(target_orb - rider.cell)
 		if toward_orb.length_squared() > 0.0:
 			score += Vector3(direction).dot(toward_orb.normalized()) * 2.2
 		if scoring.orbs.has(target):
-			score += 5.0
+			var reward_weight := sqrt(float(scoring.orbs[target]) / float(Scoring.ORB_POINTS))
+			score += 5.0 * reward_weight
 		for other_index in range(riders.size()):
 			var other: Dictionary = riders[other_index]
 			if other_index != index and other.alive:

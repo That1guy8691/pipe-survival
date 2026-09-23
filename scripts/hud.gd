@@ -6,6 +6,8 @@ signal quick_restart_clicked
 signal touch_turn_requested(command: String)
 signal touch_boost_changed(held: bool)
 signal touch_view_requested
+signal touch_overview_style_requested
+signal touch_overview_focus_requested
 signal touch_pause_requested
 const INK := Color("e8f2f5")
 const MUTED := Color("8da4b8")
@@ -16,6 +18,7 @@ const OPTIONS_VIEW_INSET := 38.0
 const OPTIONS_VIEW_HEIGHT := 322.0
 const Appearance = preload("res://scripts/pipe_appearance.gd")
 const PipePreview = preload("res://scripts/pipe_preview.gd")
+const Scoring = preload("res://scripts/scoring.gd")
 var game: Node
 var font := SystemFont.new()
 var mono := SystemFont.new()
@@ -39,6 +42,8 @@ var menu_canvas := Control.new()
 var options_content := Control.new()
 var touch_boost := Button.new()
 var touch_view := Button.new()
+var touch_overview_style := Button.new()
+var touch_overview_focus := Button.new()
 var touch_pause := Button.new()
 var options_open := false
 var touch_ui_enabled := false
@@ -227,6 +232,12 @@ func build_touch_controls() -> void:
 	touch_view.add_theme_stylebox_override("pressed", box(Color("287f86"), 14))
 	touch_view.pressed.connect(func(): touch_view_requested.emit())
 	add_child(touch_view)
+	configure_touch_button(touch_overview_style, "PIPES / NORMAL", 12)
+	touch_overview_style.pressed.connect(func(): touch_overview_style_requested.emit())
+	add_child(touch_overview_style)
+	configure_touch_button(touch_overview_focus, "NEXT / YOU", 12)
+	touch_overview_focus.pressed.connect(func(): touch_overview_focus_requested.emit())
+	add_child(touch_overview_focus)
 	configure_touch_button(touch_pause, "PAUSE", 14)
 	touch_pause.pressed.connect(func(): touch_pause_requested.emit())
 	add_child(touch_pause)
@@ -347,6 +358,8 @@ func update_touch_scale(factor: float) -> void:
 	applied_touch_scale = factor
 	touch_boost.add_theme_font_size_override("font_size", roundi(17.0 * factor))
 	touch_view.add_theme_font_size_override("font_size", roundi(14.0 * factor))
+	touch_overview_style.add_theme_font_size_override("font_size", roundi(12.0 * factor))
+	touch_overview_focus.add_theme_font_size_override("font_size", roundi(12.0 * factor))
 	touch_pause.add_theme_font_size_override("font_size", roundi(14.0 * factor))
 	quick_restart.add_theme_font_size_override("font_size", roundi(17.0 * factor))
 
@@ -486,6 +499,7 @@ func _process(_delta: float) -> void:
 		hud_toggle.set_pressed_no_signal(game.hud_enabled)
 		var steer_visible: bool = touch_ui_enabled and game.state in ["playing", "countdown"] and not game.auto_mode and game.sim.riders[0].alive
 		var touch_active: bool = touch_ui_enabled and game.state in ["playing", "countdown"]
+		var overview_active: bool = touch_active and game.camera.overview and game.crash_view_time <= 0.0
 		if not steer_visible and joystick_touch_index != -1:
 			release_touch_joystick()
 		touch_boost.visible = steer_visible
@@ -496,6 +510,17 @@ func _process(_delta: float) -> void:
 		touch_view.visible = touch_active
 		touch_view.position = Vector2(available.x - 124, 124) * ui_factor
 		touch_view.size = Vector2(108, 44) * ui_factor
+		touch_overview_style.visible = overview_active
+		touch_overview_style.position = Vector2(available.x - 164, 174) * ui_factor
+		touch_overview_style.size = Vector2(144, 44) * ui_factor
+		touch_overview_style.text = "PIPES / " + game.overview_style_name()
+		touch_overview_focus.visible = overview_active
+		touch_overview_focus.position = Vector2(available.x - 164, 224) * ui_factor
+		touch_overview_focus.size = Vector2(144, 44) * ui_factor
+		var focus_name: String = game.sim.rider_name(game.overview_focus_id).to_upper()
+		if focus_name.length() > 10:
+			focus_name = focus_name.left(9) + "…"
+		touch_overview_focus.text = "NEXT / " + focus_name
 		touch_pause.visible = touch_active
 		touch_pause.position = Vector2(available.x - 78, 16) * ui_factor
 		touch_pause.size = Vector2(62, 44) * ui_factor
@@ -524,12 +549,14 @@ func _draw() -> void:
 	var sim = game.sim
 	var focus_id: int = game.watch_id if game.auto_mode else 0
 	var focus_rider: Dictionary = sim.riders[focus_id]
-	panel(Rect2(24, 24, 252, 140))
+	panel(Rect2(24, 24, 252, 190))
 	label_at("PIPE / ENDLESS" if game.endless_mode else "PIPE / SURVIVAL", Vector2(44, 53), 18, ACCENT)
 	label_at("%d / %d ALIVE" % [sim.alive_ids().size(), sim.riders.size()], Vector2(43, 97), 32)
 	var seconds := int(sim.elapsed_time)
 	label_at("SESSION  %02d:%02d" % [seconds / 60, seconds % 60] if game.endless_mode
 		else "ROUND  %02d:%02d" % [seconds / 60, seconds % 60], Vector2(44, 139), 21, MUTED, true)
+	label_at("ORB VALUES", Vector2(44, 169), 13, MUTED)
+	draw_orb_legend(Vector2(48, 196), 77.0, 14)
 	panel(Rect2(size.x / 2.0 - 186, 24, 372, 88))
 	var following: bool = game.auto_mode or not sim.riders[0].alive
 	centered("AUTO MODE / FOLLOWING" if game.auto_mode else ("SPECTATING" if following else "YOUR PIPE"), 53, 16, MUTED)
@@ -584,6 +611,13 @@ func draw_leaderboard(focus_id: int) -> void:
 		var name_text := fit_leaderboard_name(game.sim.rider_name(i), rank, name_width)
 		label_at(name_text, Vector2(name_x, y), 17, color)
 		label_at(score, Vector2(score_x, y), 18, INK if i == focus_id else MUTED, true)
+
+func draw_orb_legend(origin: Vector2, spacing: float, font_size: int) -> void:
+	var values: Array[int] = [Scoring.BLUE_ORB_POINTS, Scoring.ORB_POINTS, Scoring.VIOLET_ORB_POINTS]
+	for i in range(values.size()):
+		var x := origin.x + float(i) * spacing
+		draw_circle(Vector2(x, origin.y - 4.0), 5.0, Scoring.orb_color(values[i]))
+		label_at(str(values[i]), Vector2(x + 12.0, origin.y), font_size, INK, true)
 
 func fit_leaderboard_name(name: String, rank: int, max_width: float) -> String:
 	var prefix := "%02d " % rank
@@ -641,6 +675,8 @@ func draw_touch_game_hud() -> void:
 		if rider.combo_count > 1:
 			status = "COMBO x%.1f" % rider.combo_multiplier
 		label_at(status, Vector2(30, 99), 13, ACCENT)
+	panel(Rect2(16, 116, 176, 34))
+	draw_orb_legend(Vector2(32, 139), 56.0, 13)
 	draw_play_messages()
 
 func draw_touch_joystick() -> void:
@@ -668,13 +704,16 @@ func draw_play_messages() -> void:
 		var queued := " > ".join(game.turn_queue).to_upper()
 		if not queued.is_empty():
 			centered("QUEUED / " + queued, h - 161, 17, ACCENT)
-		if not touch_ui_enabled and game.hud_enabled and game.clearance > 2:
+		if not touch_ui_enabled and game.hud_enabled and game.clearance > 2 and not game.camera.overview:
 			var control_hint := "C / CAMERA     F / TAKE CONTROL     ESC / PAUSE" if game.auto_mode else "WASD / STEER     HOLD SHIFT / BOOST     ESC / PAUSE"
 			centered(control_hint, 137, 13, MUTED)
 		if game.clearance <= 2 and not game.auto_mode:
 			centered("BLOCKED AHEAD / TURN", 148, 22, Color("ffb65a"))
 		if game.score_message_time > 0.0 and not game.auto_mode:
 			centered(game.score_message, h / 2.0 + 65, 20, Color("ffdb77"))
+	if not touch_ui_enabled and game.hud_enabled and game.camera.overview \
+			and game.state in ["playing", "countdown"]:
+		centered("V / PIPE VIEW     TAB / SELECT PIPE     RIGHT DRAG / ORBIT", 137, 13, MUTED)
 	if game.fov_message_time > 0.0:
 		centered(game.fov_message, h / 2.0 - 68, 17, ACCENT)
 	if game.state == "playing" and not sim.riders[0].alive and (not game.auto_mode or game.endless_mode):
@@ -747,19 +786,20 @@ func draw_overlay() -> void:
 	if game.state == "paused":
 		if touch_ui_enabled:
 			if game.auto_mode:
-				lines = ["Auto mode steers and boosts for you.", "Tap PAUSE to resume the round.",
-				"GAME OPTIONS keeps the round settings."]
+				lines = ["Auto mode steers and boosts for you.", "Tap RESUME to return to the round.",
+				"On resume, tap VIEW for overview controls.", "GAME OPTIONS keeps the round settings."]
 			else:
 				lines = ["Tap the direction pad to steer.", "Hold BOOST; release to recharge.",
-					"Tap PAUSE to resume whenever you need.", "GAME OPTIONS keeps the round settings."]
+					"On resume, tap VIEW for overview controls.",
+					"Tap RESUME to return to the round.", "GAME OPTIONS keeps the round settings."]
 		elif game.auto_mode:
-			lines = ["Every pipe steers and boosts automatically.", "Follow a pipe: Tab / Shift+Tab",
-				"Camera: C / FOV: Q / E / take control: F", "Arrow keys: orbit / look",
-				"Overview: mouse orbit / wheel zoom", "Hide HUD: H"]
+			lines = ["Every pipe steers and boosts automatically.", "Overview: V display / Tab select",
+				"Outside overview, Tab follows a pipe.", "Camera: C / FOV: Q / E / take control: F",
+				"Arrows: orbit / look / mouse: overview orbit / zoom", "Hide HUD: H"]
 		else:
 			lines = ["Pitch: W / S    Turn: A / D", "Boost: hold Shift", "FOV: Q / E",
-				"Camera: C", "Arrow keys: orbit / look",
-				"Overview: mouse orbit / wheel zoom    HUD: H"]
+				"Camera: C", "Overview: V display / Tab select",
+				"Arrows: look / mouse: overview orbit / zoom    HUD: H"]
 	elif game.state == "finished":
 		var winner: int = game.sim.winner
 		title = "ROUND WON" if winner == 0 else "ROUND OVER"

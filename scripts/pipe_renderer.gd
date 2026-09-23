@@ -4,6 +4,7 @@ const Rules = preload("res://scripts/simulation.gd")
 const Geometry = preload("res://scripts/pipe_geometry.gd")
 const Inlet = preload("res://scripts/pipe_inlet.gd")
 const Appearance = preload("res://scripts/pipe_appearance.gd")
+enum OverviewStyle { NORMAL, HIGHLIGHT, ENDS }
 var player_pattern := Appearance.Pattern.SOLID
 var pattern_rng := RandomNumberGenerator.new()
 var model
@@ -17,6 +18,8 @@ var active_materials: Array[ShaderMaterial] = []
 var plans: Array[Dictionary] = []
 var inlets: Array[Node3D] = []
 var inlet_materials: Array[StandardMaterial3D] = []
+var applied_overview_style := -1
+var applied_focus_id := -1
 
 func _ready() -> void:
 	pattern_rng.randomize()
@@ -75,6 +78,8 @@ func ensure_count(total: int) -> void:
 
 func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 	ensure_count(total)
+	applied_overview_style = -1
+	applied_focus_id = -1
 	plans.clear()
 	for i in range(batches.size()):
 		counts[i] = [0, 0]
@@ -104,6 +109,52 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 		var forward: Vector3i = rider.source_forward
 		inlets[i].transform = Transform3D(Geometry.orientation(forward, forward),
 			model.world(rider.source_cell) - Vector3(forward) * Rules.SPACING * 0.5)
+
+func set_overview_style(style: int, focus_id: int) -> void:
+	if style == applied_overview_style and focus_id == applied_focus_id:
+		return
+	applied_overview_style = style
+	applied_focus_id = focus_id
+	for i in range(batches.size()):
+		if i >= model.riders.size():
+			continue
+		var focused := i == focus_id
+		var trail_brightness := 1.0
+		var head_brightness := 1.0
+		var inlet_brightness := 1.0
+		var label_alpha := 1.0
+		var head_emission := 0.5
+		var inlet_emission := 0.13
+		match style:
+			OverviewStyle.HIGHLIGHT:
+				if not focused:
+					trail_brightness = 0.12
+					head_brightness = 0.28
+					inlet_brightness = 0.32
+					label_alpha = 0.24
+					head_emission = 0.12
+					inlet_emission = 0.04
+			OverviewStyle.ENDS:
+				trail_brightness = 0.16
+				head_brightness = 1.35
+				inlet_brightness = 1.7
+				label_alpha = 0.9
+				head_emission = 1.15
+				inlet_emission = 0.55
+		var pipe_color: Color = model.rider_color(i)
+		for batch: MultiMeshInstance3D in batches[i]:
+			(batch.material_override as ShaderMaterial).set_shader_parameter(
+				"display_brightness", trail_brightness)
+		active_materials[i].set_shader_parameter("display_brightness", trail_brightness)
+		var head_material := heads[i].material_override as StandardMaterial3D
+		head_material.albedo_color = scale_rgb(pipe_color.lightened(0.25), head_brightness)
+		head_material.emission = pipe_color * head_emission
+		inlet_materials[i].albedo_color = scale_rgb(pipe_color, inlet_brightness)
+		inlet_materials[i].emission = pipe_color * inlet_emission
+		markers[i].modulate = Color(pipe_color.r, pipe_color.g, pipe_color.b, label_alpha)
+
+static func scale_rgb(color: Color, factor: float) -> Color:
+	return Color(color.r * factor, color.g * factor, color.b * factor, color.a)
 
 func begin_step(riders: Array[Dictionary], directions: Array[Vector3i]) -> void:
 	for i in range(riders.size()):

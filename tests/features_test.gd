@@ -2,6 +2,7 @@ extends SceneTree
 
 const Rules = preload("res://scripts/simulation.gd")
 const Motion = preload("res://scripts/motion.gd")
+const Scoring = preload("res://scripts/scoring.gd")
 var checks := 0
 var failures := 0
 
@@ -11,7 +12,65 @@ func check(condition: bool, description: String) -> void:
 		failures += 1
 		push_error(description)
 
+func check_orb_values() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20260923
+	var tier_counts := {Scoring.BLUE_ORB_POINTS: 0, Scoring.ORB_POINTS: 0,
+		Scoring.VIOLET_ORB_POINTS: 0}
+	var total_points := 0
+	for sample in range(5000):
+		var points := Scoring.roll_orb_points(rng)
+		tier_counts[points] += 1
+		total_points += points
+	var average_points := float(total_points) / 5000.0
+	check(absf(average_points - 25.5) < 0.45, "Orb mix keeps average value close to 25 points")
+	check(tier_counts[Scoring.BLUE_ORB_POINTS] > 900 and tier_counts[Scoring.BLUE_ORB_POINTS] < 1100
+		and tier_counts[Scoring.ORB_POINTS] > 3400 and tier_counts[Scoring.ORB_POINTS] < 3600
+		and tier_counts[Scoring.VIOLET_ORB_POINTS] > 400 and tier_counts[Scoring.VIOLET_ORB_POINTS] < 600,
+		"Orb spawn mix follows the selected tier weights")
+	check(Scoring.orb_name(15) == "BLUE" and Scoring.orb_name(25) == "GOLD"
+		and Scoring.orb_name(50) == "VIOLET", "Orb tiers have distinct names")
+	check(Scoring.orb_color(15) == Scoring.BLUE_ORB_COLOR
+		and Scoring.orb_color(25) == Scoring.GOLD_ORB_COLOR
+		and Scoring.orb_color(50) == Scoring.VIOLET_ORB_COLOR,
+		"Orb tiers map to their display colors")
+	check(Scoring.orb_scale(15) < Scoring.orb_scale(25)
+		and Scoring.orb_scale(25) < Scoring.orb_scale(50), "Higher-value orbs are slightly larger")
+
+	for points in [Scoring.BLUE_ORB_POINTS, Scoring.ORB_POINTS, Scoring.VIOLET_ORB_POINTS]:
+		var sim := Rules.new()
+		sim.reset(120, 7)
+		var rider: Dictionary = sim.riders[0]
+		var target: Vector3i = rider.cell + rider.forward
+		sim.scoring.orbs.clear()
+		sim.scoring.orbs[target] = points
+		rider.near_miss_active = true
+		var move: Dictionary = {"id": 0, "cell": rider.cell, "target": target, "died": false}
+		sim.scoring.resolve(sim, [move])
+		check(int(move.get("orb_points", 0)) == points and sim.riders[0].score == points,
+			"Collecting a %d-point orb awards its configured value" % points)
+		var expected_event := Scoring.orb_name(points) + " ORB"
+		check(sim.scoring.last_awards.size() == 1
+			and expected_event in sim.scoring.last_awards[0].events,
+			"Pickup feedback identifies the %s orb" % Scoring.orb_name(points))
+
+	var target_scoring := Scoring.new()
+	var origin := Vector3i(10, 10, 10)
+	var near_blue := origin + Vector3i(2, 0, 0)
+	var farther_violet := origin + Vector3i(0, 4, 0)
+	target_scoring.orbs = {near_blue: Scoring.BLUE_ORB_POINTS,
+		farther_violet: Scoring.VIOLET_ORB_POINTS}
+	check(target_scoring.best_target(origin) == farther_violet,
+		"Bots can prefer a nearby higher-value route over a low-value orb")
+	var distant_violet := origin + Vector3i(0, 40, 0)
+	target_scoring.orbs = {near_blue: Scoring.BLUE_ORB_POINTS,
+		origin + Vector3i(2, 2, 0): Scoring.ORB_POINTS,
+		distant_violet: Scoring.VIOLET_ORB_POINTS}
+	check(target_scoring.best_target(origin) == origin + Vector3i(2, 2, 0),
+		"Bots keep a distance preference instead of chasing every violet orb")
+
 func _initialize() -> void:
+	check_orb_values()
 	var sim := Rules.new()
 	for bots in [7, 15, 23, 31]:
 		sim.reset(15, bots)
