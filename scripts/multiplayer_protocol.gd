@@ -2,6 +2,7 @@ extends RefCounted
 ## Small text protocol shared by the browser client and room server.
 
 const VERSION := 1
+const MAX_STATE_BYTES := 8 * 1024 * 1024
 const VALID_TURNS := ["up", "down", "left", "right"]
 
 static func join_message(name: String, color: Color, room_id: String = "") -> String:
@@ -13,16 +14,20 @@ static func join_message(name: String, color: Color, room_id: String = "") -> St
 		"color": color.to_html(false),
 	})
 
-static func input_message(turn: String = "", boost: bool = false, sequence: int = 0) -> String:
+static func input_message(turn: String = "", boost: Variant = null, sequence: int = 0) -> String:
 	var message := {
 		"version": VERSION,
 		"type": "input",
-		"boost": boost,
 		"sequence": maxi(sequence, 0),
 	}
+	if boost is bool:
+		message["boost"] = boost
 	if turn in VALID_TURNS:
 		message["turn"] = turn
 	return JSON.stringify(message)
+
+static func respawn_message() -> String:
+	return JSON.stringify({"version": VERSION, "type": "respawn"})
 
 static func leave_message(reason: String = "left") -> String:
 	return JSON.stringify({
@@ -50,7 +55,7 @@ static func parse_color(value, fallback: Color = Color("56eddf")) -> Color:
 
 static func state_message(room_snapshot: Dictionary, tick: int, riders: Array[Dictionary],
 		moves: Array[Dictionary] = [], history: Array = [], full_snapshot: bool = false,
-		orbs: Dictionary = {}) -> String:
+		orbs: Dictionary = {}, step_duration: float = 1.0 / 3.0) -> String:
 	var serialized_riders: Array[Dictionary] = []
 	for i in range(riders.size()):
 		var rider: Dictionary = riders[i]
@@ -65,6 +70,7 @@ static func state_message(room_snapshot: Dictionary, tick: int, riders: Array[Di
 		"room": room_snapshot,
 		"riders": serialized_riders,
 		"moves": serialized_moves,
+		"step_duration": step_duration,
 		"full_snapshot": full_snapshot,
 		"orbs": _serialize_orbs(orbs),
 	}

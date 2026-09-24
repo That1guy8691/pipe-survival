@@ -13,6 +13,7 @@ const MAX_CONNECTIONS := 256
 const MAX_PACKETS_PER_SECOND := 120
 const PACKET_WINDOW_MS := 1000
 const MAX_INBOUND_PACKET_BYTES := 4096
+const NETWORK_STEP_TIME := Rules.STEP_TIME / 2.0
 
 var port := DEFAULT_PORT
 var validation_only := false
@@ -43,8 +44,8 @@ func _process(delta: float) -> bool:
 		if clients.has(connection_id):
 			_poll_client(int(connection_id))
 	accumulator += delta
-	while accumulator >= Rules.STEP_TIME:
-		accumulator -= Rules.STEP_TIME
+	while accumulator >= NETWORK_STEP_TIME:
+		accumulator -= NETWORK_STEP_TIME
 		_step_rooms()
 	return false
 
@@ -52,6 +53,8 @@ func _accept_connections() -> void:
 	while tcp_server.is_connection_available():
 		var stream := tcp_server.take_connection()
 		var socket := WebSocketPeer.new()
+		# A room snapshot can exceed Godot's 64 KiB default once trails have grown.
+		socket.outbound_buffer_size = Protocol.MAX_STATE_BYTES
 		var error := socket.accept_stream(stream)
 		if error != OK:
 			socket.close(-1)
@@ -107,7 +110,12 @@ func _handle_message(connection_id: int, message: Dictionary) -> void:
 				var runtime: RoomRuntime = runtimes.get(str(client.room_id), null)
 				if runtime != null:
 					runtime.receive_input(connection_id, str(message.get("turn", "")),
-						bool(message.get("boost", false)))
+						bool(message.get("boost", false)), message.has("boost"))
+		"respawn":
+			if bool(client.get("joined", false)):
+				var runtime: RoomRuntime = runtimes.get(str(client.room_id), null)
+				if runtime != null:
+					runtime.request_respawn(connection_id)
 		"leave":
 			_release_client(connection_id, str(message.get("reason", "left")))
 		"host":
@@ -183,8 +191,9 @@ func _runtime_for(room: Room) -> RoomRuntime:
 func _step_rooms() -> void:
 	for room_id in runtimes.keys().duplicate():
 		var runtime: RoomRuntime = runtimes[room_id]
-		var moves := runtime.step()
-		_broadcast_state(runtime, moves)
+		var moves := runtime.step(NETWORK_STEP_TIME)
+		if not moves.is_empty() or runtime.state_changed:
+			_broadcast_state(runtime, moves)
 
 func _release_client(connection_id: int, reason: String) -> void:
 	if not clients.has(connection_id):
@@ -257,7 +266,15 @@ func _send_text(connection_id: int, message: String) -> void:
 		return
 	var socket: WebSocketPeer = clients[connection_id].socket
 	if socket.get_ready_state() == WebSocketPeer.STATE_OPEN:
-		socket.send_text(message)
+		var queued_bytes := socket.get_current_outbound_buffered_amount()
+		if queued_bytes + message.to_utf8_buffer().size() + 1024 > Protocol.MAX_STATE_BYTES:
+			socket.close(1013, "SEND_BUFFER_FULL")
+			_release_client(connection_id, "slow connection")
+			return
+		var error := socket.send_text(message)
+		if error != OK:
+			socket.close(1013, "SEND_FAILED")
+			_release_client(connection_id, "send failed")
 
 func _serializable_member(member: Dictionary) -> Dictionary:
 	var copy := member.duplicate()

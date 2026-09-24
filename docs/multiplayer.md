@@ -11,7 +11,9 @@ Pipe Survival's first online slice uses an authoritative Godot room server and a
 - Survival rooms are closed to late joins after the round starts. Endless rooms stay joinable while they run.
 - Round seeds now choose a fresh, deterministic set of wall inlets instead of always opening at the same location.
 - Auto Mode is a solo assist; online connections force it off and ignore attempts to re-enable it.
-- Restart is also a solo action. In multiplayer, the server handles Endless respawns per player; `R` never resets the shared room.
+- In Endless multiplayer, a dead player presses `R` or clicks **Respawn Pipe** when ready. Bots still respawn automatically. `R` never resets the shared room.
+- Holding Shift boosts movement to twice the normal speed while pressure lasts; releasing it refills pressure.
+- Every rider's score resets to zero on death, including bots.
 
 ## Local room server
 

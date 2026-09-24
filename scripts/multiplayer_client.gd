@@ -20,6 +20,7 @@ func connect_to_room(server_url: String, room_id: String, player_name: String,
 		return ERR_ALREADY_IN_USE
 	url = server_url
 	socket = WebSocketPeer.new()
+	socket.inbound_buffer_size = Protocol.MAX_STATE_BYTES
 	var error := socket.connect_to_url(server_url)
 	if error != OK:
 		socket = null
@@ -38,12 +39,16 @@ func leave(reason: String = "left") -> void:
 func send_turn(turn: String, sequence: int = 0) -> void:
 	if socket == null or socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		return
-	socket.send_text(Protocol.input_message(turn, false, sequence))
+	socket.send_text(Protocol.input_message(turn, null, sequence))
 
 func send_boost(enabled: bool, sequence: int = 0) -> void:
 	if socket == null or socket.get_ready_state() != WebSocketPeer.STATE_OPEN:
 		return
 	socket.send_text(Protocol.input_message("", enabled, sequence))
+
+func send_respawn() -> void:
+	if socket != null and socket.get_ready_state() == WebSocketPeer.STATE_OPEN:
+		socket.send_text(Protocol.respawn_message())
 
 func close() -> void:
 	if socket != null:

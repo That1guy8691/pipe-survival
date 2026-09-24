@@ -4,9 +4,13 @@ extends SceneTree
 class RecordingClient:
 	extends "res://scripts/multiplayer_client.gd"
 	var sent_turns: Array[String] = []
+	var respawn_requests := 0
 
 	func send_turn(turn: String, _sequence: int = 0) -> void:
 		sent_turns.append(turn)
+
+	func send_respawn() -> void:
+		respawn_requests += 1
 
 func _initialize() -> void:
 	call_deferred("run")
@@ -31,6 +35,29 @@ func run() -> void:
 		push_error("Online steering must send every turn without filling the local queue")
 		quit(1)
 		return
+	game.endless_mode = true
+	game.sim.riders[0].alive = false
+	game.hud._process(0.0)
+	if not game.hud.quick_restart.visible or game.hud.quick_restart.text != "RESPAWN PIPE":
+		push_error("Online death must show the manual Respawn button")
+		quit(1)
+		return
+	var key := InputEventKey.new()
+	key.physical_keycode = KEY_R
+	key.pressed = true
+	game._unhandled_input(key)
+	game.request_player_restart()
+	if recorder.respawn_requests != 1 or not game.player_respawn_pending:
+		push_error("R and Respawn request the same single online respawn")
+		quit(1)
+		return
+	game.hud._process(0.0)
+	if not game.hud.quick_restart.disabled:
+		push_error("A pending online respawn must not submit repeated requests")
+		quit(1)
+		return
+	game.sim.riders[0].alive = true
+	game.player_respawn_pending = false
 	game.online_mode = false
 	game.online_connected = false
 	game.queue_turn("left")
@@ -40,5 +67,5 @@ func run() -> void:
 		return
 	game.online_client = original_client
 	recorder.free()
-	print("MULTIPLAYER INPUT: four online turns sent; solo queue still works")
+	print("MULTIPLAYER INPUT: online turns and manual respawn sent; solo queue still works")
 	quit()

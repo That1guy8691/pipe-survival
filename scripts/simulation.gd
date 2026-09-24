@@ -395,8 +395,8 @@ func advance(directions: Array[Vector3i], movers: Array[int] = [], elapsed: floa
 			rider.boosting = false
 			rider.death_tick = ticks + 1
 			rider.cause = cause
+			rider.score = 0
 			if endless_mode:
-				rider.score = 0
 				rider.orb_count = 0
 				rider.eliminations = 0
 				rider.survival_time = 0.0

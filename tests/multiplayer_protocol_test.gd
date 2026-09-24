@@ -18,6 +18,12 @@ func _initialize() -> void:
 	var input := Protocol.parse_packet(Protocol.input_message("left", true, 7).to_utf8_buffer())
 	check(input.type == "input" and input.turn == "left" and input.boost and input.sequence == 7,
 		"Input messages carry validated steering and boost intent")
+	var turn_only := Protocol.parse_packet(Protocol.input_message("right", null, 8).to_utf8_buffer())
+	check(turn_only.turn == "right" and not turn_only.has("boost"),
+		"Steering does not release a held boost")
+	var respawn := Protocol.parse_packet(Protocol.respawn_message().to_utf8_buffer())
+	check(respawn.type == "respawn" and respawn.version == Protocol.VERSION,
+		"Respawn requests use a dedicated room command")
 	var invalid_input := Protocol.parse_packet(Protocol.input_message("spin").to_utf8_buffer())
 	check(invalid_input.type == "input" and not invalid_input.has("turn"),
 		"Unknown steering commands are omitted from the wire format")
@@ -35,6 +41,8 @@ func _initialize() -> void:
 		[], history, true).to_utf8_buffer())
 	check(state.type == "state" and state.tick == 9 and state.riders.size() == 1,
 		"State messages include room tick and rider snapshots")
+	check(is_equal_approx(float(state.step_duration), 1.0 / 3.0),
+		"State messages include their presentation duration")
 	check(state.riders[0].cell[0] == 1 and state.riders[0].cell[1] == 2
 		and state.riders[0].cell[2] == 3 and state.riders[0].color == "56eddf"
 		and is_equal_approx(float(state.riders[0].pressure), 0.8),

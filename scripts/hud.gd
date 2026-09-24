@@ -650,8 +650,14 @@ func _process(_delta: float) -> void:
 		online_private_join.visible = game.state == "ready" and online_open
 		mode_toggle.visible = game.state == "ready" and not options_open and not online_open and not controls_open
 		mode_toggle.set_pressed_no_signal(game.endless_mode)
-		quick_restart.visible = game.state == "playing" and not game.online_mode and not game.sim.riders[game.player_rider_id()].alive and (game.endless_mode or touch_ui_enabled)
-		quick_restart.text = ("RESPAWNING..." if game.auto_mode else "WAITING FOR SPACE") if game.player_respawn_pending else ("RESTART PIPE" if game.endless_mode else "RESTART ROUND")
+		quick_restart.visible = game.state == "playing" and not game.sim.riders[game.player_rider_id()].alive and (game.endless_mode or (touch_ui_enabled and not game.online_mode))
+		if game.player_respawn_pending:
+			quick_restart.text = "RESPAWNING..." if game.auto_mode and not game.online_mode else "WAITING FOR SPACE"
+		elif game.online_mode:
+			quick_restart.text = "RESPAWN PIPE"
+		else:
+			quick_restart.text = "RESTART PIPE" if game.endless_mode else "RESTART ROUND"
+		quick_restart.disabled = game.player_respawn_pending
 		var ui_factor := ui_scale_factor()
 		var available := screen_size()
 		var touch_scale := touch_control_scale()
@@ -905,13 +911,13 @@ func draw_play_messages() -> void:
 			var lost_width := minf(456.0, bounds.x - 32.0)
 			panel(Rect2((bounds.x - lost_width) / 2.0, h - 230, lost_width, 76))
 			centered("PIPE LOST", h - 201, 20, Color("ffb65a"))
-			centered("Server respawns your pipe" if game.online_mode else
+			centered("Tap Respawn when ready" if game.online_mode else
 				("Restarting..." if game.endless_mode and game.auto_mode else "Tap PAUSE to watch survivors"),
 				h - 174, 15, MUTED)
 		elif game.endless_mode:
 			panel(Rect2(size.x / 2 - 228, h - 230, 456, 76))
 			centered("PIPE LOST / " + str(sim.riders[game.player_rider_id()].cause).to_upper(), h - 201, 20, Color("ffb65a"))
-			centered("Server respawns your pipe / session continues" if game.online_mode
+			centered("Press R or click Respawn / session continues" if game.online_mode
 				else ("Your pipe returns automatically / session continues" if game.auto_mode
 				else "Press R or click Restart / session continues"), h - 174, 17, MUTED)
 		else:

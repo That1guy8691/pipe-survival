@@ -409,7 +409,7 @@ func _unhandled_input(event: InputEvent) -> void:
 				orbit_idle = 4.0
 			return
 		if key == KEY_SHIFT and not auto_mode:
-			boost_held = event.pressed and state == "playing"
+			boost_held = event.pressed and state == "playing" and sim.riders[player_rider_id()].alive
 			if online_connected:
 				online_client.send_boost(boost_held, sim.ticks)
 			if not event.pressed:
@@ -430,6 +430,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			set_hud_enabled(not hud_enabled)
 		elif key == KEY_R:
 			if online_mode:
+				if state == "playing" and not sim.riders[player_rider_id()].alive:
+					request_player_restart()
 				return
 			if endless_mode and state == "playing" and not sim.riders[player_rider_id()].alive:
 				request_player_restart()
@@ -563,6 +565,7 @@ func connect_online(server_url: String, room_id: String) -> void:
 	online_last_state.clear()
 	online_state_queue.clear()
 	online_step_active = false
+	player_respawn_pending = false
 	hud.queue_redraw()
 	var error := online_client.connect_to_room(normalized_url, normalized_room, player_name, player_color)
 	if error != OK:
@@ -579,6 +582,7 @@ func disconnect_online() -> void:
 	online_last_state.clear()
 	online_state_queue.clear()
 	online_step_active = false
+	player_respawn_pending = false
 	hud.queue_redraw()
 
 func _on_online_welcome(message: Dictionary) -> void:
@@ -597,6 +601,7 @@ func _on_online_welcome(message: Dictionary) -> void:
 	online_progress = 0.0
 	online_state_queue.clear()
 	online_step_active = false
+	player_respawn_pending = false
 	var player: Dictionary = message.get("player", {})
 	online_player_slot = int(player.get("slot", -1))
 	var room: Dictionary = message.get("room", {})
@@ -631,6 +636,7 @@ func _on_online_rejected(reason: String) -> void:
 	online_state_queue.clear()
 	online_step_active = false
 	online_player_slot = -1
+	player_respawn_pending = false
 	online_status = "REJECTED / " + reason
 	hud.queue_redraw()
 
@@ -639,6 +645,7 @@ func _on_online_connection_failed(reason: String) -> void:
 	online_mode = false
 	online_state_queue.clear()
 	online_step_active = false
+	player_respawn_pending = false
 	online_status = "CONNECT ERROR / " + reason
 	hud.queue_redraw()
 
@@ -650,11 +657,18 @@ func _on_online_disconnected(reason: String) -> void:
 	online_state_queue.clear()
 	online_step_active = false
 	online_player_slot = -1
+	player_respawn_pending = false
 	online_status = "DISCONNECTED" if reason.is_empty() else "DISCONNECTED / " + reason
 	hud.queue_redraw()
 
 func request_player_restart() -> void:
-	if online_mode or state != "playing" or sim.riders[player_rider_id()].alive:
+	if state != "playing" or sim.riders[player_rider_id()].alive:
+		return
+	if online_mode:
+		if online_connected and endless_mode and not player_respawn_pending:
+			online_client.send_respawn()
+			player_respawn_pending = true
+			hud.queue_redraw()
 		return
 	if not endless_mode:
 		start_round()
@@ -718,7 +732,9 @@ func _begin_online_step() -> void:
 				move.outgoing)
 	online_progress = 0.0
 	# A short catch-up step prevents an occasional packet burst from growing into seconds of delay.
-	online_step_duration = maxf(0.2, Rules.STEP_TIME / (1.0 + 0.25 * max(0, online_state_queue.size() - 1)))
+	var packet_duration := maxf(0.08, float(message.get("step_duration", Rules.STEP_TIME)))
+	online_step_duration = maxf(0.08,
+		packet_duration / (1.0 + 0.25 * max(0, online_state_queue.size() - 1)))
 	online_step_active = true
 
 func _finish_online_step() -> void:
@@ -754,6 +770,10 @@ func _apply_online_state(message: Dictionary) -> void:
 	for i in range(mini(wires.size(), sim.riders.size())):
 		if wires[i] is Dictionary:
 			sim.riders[i] = _wire_rider(wires[i], sim.riders[i])
+	var player_id := player_rider_id()
+	if player_id >= 0 and player_id < sim.riders.size():
+		if sim.riders[player_id].alive or (player_id < previously_alive.size() and previously_alive[player_id]):
+			player_respawn_pending = false
 	sim.ticks = int(message.get("tick", sim.ticks))
 	sim.finished = false
 	sim.winner = -1

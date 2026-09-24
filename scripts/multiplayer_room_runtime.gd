@@ -7,6 +7,9 @@ const Protocol = preload("res://scripts/multiplayer_protocol.gd")
 
 const DEFAULT_SEED := 1701
 const RESPAWN_DELAY := 2.5
+const HALF_STEP_TIME := Rules.STEP_TIME / 2.0
+const BOOST_DRAIN := 0.5
+const BOOST_REFILL := 0.25
 
 var room: Room
 var sim := Rules.new()
@@ -14,6 +17,9 @@ var human_clients_by_slot: Dictionary = {}
 var inputs: Dictionary = {}
 var respawn_timers: Array[float] = []
 var trail_history: Array = []
+var half_step_phase := 0
+var state_changed := false
+var last_step_duration := Rules.STEP_TIME
 
 func _init(configured_room: Room = null) -> void:
 	room = configured_room
@@ -32,12 +38,12 @@ func join(connection_id: int, requested_name: String, color: Color) -> Dictionar
 	if not bool(result.get("ok", false)):
 		return result
 	var member: Dictionary = result.member
-	inputs[connection_id] = {"turns": [], "boost": false}
+	inputs[connection_id] = {"turns": [], "boost": false, "respawn_requested": false}
 	human_clients_by_slot[int(member.slot)] = connection_id
 	_activate_human(member)
 	return result
 
-func receive_input(connection_id: int, turn: String, boost: bool) -> void:
+func receive_input(connection_id: int, turn: String, boost: bool, boost_present: bool = true) -> void:
 	if not inputs.has(connection_id):
 		return
 	var input: Dictionary = inputs[connection_id]
@@ -46,8 +52,21 @@ func receive_input(connection_id: int, turn: String, boost: bool) -> void:
 		if turns.size() < 2:
 			turns.append(turn)
 		input["turns"] = turns
-	input["boost"] = boost
+	if boost_present:
+		input["boost"] = boost
 	inputs[connection_id] = input
+
+func request_respawn(connection_id: int) -> bool:
+	if not inputs.has(connection_id) or room.mode != "endless":
+		return false
+	var member: Dictionary = room.members.get(connection_id, {})
+	var slot := int(member.get("slot", -1))
+	if slot < 0 or slot >= sim.riders.size() or sim.riders[slot].alive:
+		return false
+	var input: Dictionary = inputs[connection_id]
+	input["respawn_requested"] = true
+	inputs[connection_id] = input
+	return true
 
 func leave(connection_id: int, reason: String = "left") -> Dictionary:
 	if not inputs.has(connection_id):
@@ -61,49 +80,95 @@ func leave(connection_id: int, reason: String = "left") -> Dictionary:
 	inputs.erase(connection_id)
 	return result
 
-func step() -> Array[Dictionary]:
+func step(delta: float = Rules.STEP_TIME) -> Array[Dictionary]:
+	var moves: Array[Dictionary] = []
+	var steps := maxi(1, roundi(delta / HALF_STEP_TIME))
+	state_changed = false
+	for _step in range(steps):
+		moves.append_array(_half_step())
+	return moves
+
+func _half_step() -> Array[Dictionary]:
+	half_step_phase = (half_step_phase + 1) % 2
 	var directions: Array[Vector3i] = []
+	var movers: Array[int] = []
+	var fast_move := false
 	for i in range(sim.riders.size()):
 		var rider: Dictionary = sim.riders[i]
 		if not rider.alive:
 			directions.append(rider.forward)
 			continue
 		var connection_id: int = int(human_clients_by_slot.get(i, -1))
+		var input: Dictionary = inputs.get(connection_id, {})
+		var requested := bool(input.get("boost", false))
+		if not requested:
+			rider.boost_locked = false
+		if requested and rider.pressure < HALF_STEP_TIME * BOOST_DRAIN:
+			rider.boost_locked = true
+		rider.boosting = requested and not rider.boost_locked
+		rider.pressure = clampf(rider.pressure + HALF_STEP_TIME *
+			(-BOOST_DRAIN if rider.boosting else BOOST_REFILL), 0.0, 1.0)
+		var due: bool = half_step_phase == 0 or bool(rider.boosting)
+		if due:
+			movers.append(i)
+			fast_move = fast_move or rider.boosting
 		if connection_id >= 0 and inputs.has(connection_id):
-			var input: Dictionary = inputs[connection_id]
 			var turns: Array = input.turns
 			var direction: Vector3i = rider.forward
-			if not turns.is_empty():
+			if due and not turns.is_empty():
 				direction = Rules.turn(rider, str(turns.pop_front()))
 				input["turns"] = turns
 			inputs[connection_id] = input
 			directions.append(direction)
 		else:
-			directions.append(sim.bot_direction(i))
-	var moves: Array[Dictionary] = sim.advance(directions)
+			directions.append(sim.bot_direction(i) if due else rider.forward)
+	last_step_duration = HALF_STEP_TIME if fast_move else Rules.STEP_TIME
+	var moves: Array[Dictionary] = []
+	if movers.is_empty():
+		sim.elapse(HALF_STEP_TIME)
+	else:
+		moves = sim.advance(directions, movers, HALF_STEP_TIME)
 	for move: Dictionary in moves:
 		if bool(move.get("died", false)):
-			respawn_timers[move.id] = RESPAWN_DELAY
+			var dead_connection := int(human_clients_by_slot.get(move.id, -1))
+			respawn_timers[move.id] = -1.0 if dead_connection >= 0 else RESPAWN_DELAY
+			if dead_connection >= 0 and inputs.has(dead_connection):
+				var input: Dictionary = inputs[dead_connection]
+				input["respawn_requested"] = false
+				input["boost"] = false
+				input["turns"] = []
+				inputs[dead_connection] = input
 			trail_history[move.id].clear()
 		else:
 			trail_history[move.id].append(move.duplicate())
 	for i in range(sim.riders.size()):
-		if sim.riders[i].alive or respawn_timers[i] < 0.0:
+		if sim.riders[i].alive:
 			continue
-		respawn_timers[i] = maxf(0.0, respawn_timers[i] - Rules.STEP_TIME)
-		if respawn_timers[i] > 0.0:
+		var connection_id: int = int(human_clients_by_slot.get(i, -1))
+		if connection_id >= 0 and inputs.has(connection_id):
+			var input: Dictionary = inputs[connection_id]
+			if bool(input.get("respawn_requested", false)) and sim.respawn_rider(i):
+				input["respawn_requested"] = false
+				inputs[connection_id] = input
+				state_changed = true
 			continue
-		if sim.respawn_rider(i):
-			respawn_timers[i] = -1.0
-		else:
-			respawn_timers[i] = 0.75
+		if connection_id >= 0 or respawn_timers[i] < 0.0:
+			continue
+		respawn_timers[i] = maxf(0.0, respawn_timers[i] - HALF_STEP_TIME)
+		if respawn_timers[i] <= 0.0:
+			if sim.respawn_rider(i):
+				respawn_timers[i] = -1.0
+				state_changed = true
+			else:
+				respawn_timers[i] = 0.75
 	if not room.match_started:
 		room.start_match()
 	return moves
 
 func state_message(moves: Array[Dictionary] = [], full_snapshot: bool = false) -> String:
 	return Protocol.state_message(room.snapshot(), sim.ticks, sim.riders, moves,
-		trail_history if full_snapshot else [], full_snapshot, sim.scoring.orbs)
+		trail_history if full_snapshot else [], full_snapshot, sim.scoring.orbs,
+		last_step_duration)
 
 func event_message(event_name: String, member: Dictionary) -> String:
 	var copy := member.duplicate()
