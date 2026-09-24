@@ -7,7 +7,6 @@ const Protocol = preload("res://scripts/multiplayer_protocol.gd")
 
 const DEFAULT_SEED := 1701
 const RESPAWN_DELAY := 2.5
-const MAX_TRAIL_HISTORY := 512
 
 var room: Room
 var sim := Rules.new()
@@ -88,8 +87,6 @@ func step() -> Array[Dictionary]:
 			trail_history[move.id].clear()
 		else:
 			trail_history[move.id].append(move.duplicate())
-			if trail_history[move.id].size() > MAX_TRAIL_HISTORY:
-				trail_history[move.id].pop_front()
 	for i in range(sim.riders.size()):
 		if sim.riders[i].alive or respawn_timers[i] < 0.0:
 			continue

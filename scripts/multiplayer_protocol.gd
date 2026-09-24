@@ -57,15 +57,7 @@ static func state_message(room_snapshot: Dictionary, tick: int, riders: Array[Di
 		serialized_riders.append(_serialize_rider(i, rider))
 	var serialized_moves: Array[Dictionary] = []
 	for move: Dictionary in moves:
-		serialized_moves.append({
-			"id": move.id,
-			"cell": _vector_array(move.cell),
-			"target": _vector_array(move.target),
-			"incoming": _vector_array(move.incoming),
-			"outgoing": _vector_array(move.outgoing),
-			"up": _vector_array(move.get("up", Vector3i.UP)),
-			"died": move.get("died", false),
-		})
+		serialized_moves.append(_serialize_move(move))
 	var payload := {
 		"version": VERSION,
 		"type": "state",

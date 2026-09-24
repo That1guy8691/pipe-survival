@@ -728,7 +728,7 @@ func _draw() -> void:
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 		return
 	var sim = game.sim
-	var focus_id: int = game.watch_id if game.auto_mode else 0
+	var focus_id: int = game.watch_id if game.auto_mode else game.player_rider_id()
 	var focus_rider: Dictionary = sim.riders[focus_id]
 	panel(Rect2(24, 24, 252, 190))
 	label_at("PIPE / ENDLESS" if game.endless_mode else "PIPE / SURVIVAL", Vector2(44, 53), 18, ACCENT)
@@ -741,7 +741,8 @@ func _draw() -> void:
 	panel(Rect2(size.x / 2.0 - 186, 24, 372, 88))
 	var following: bool = game.auto_mode or not sim.riders[game.player_rider_id()].alive
 	centered("AUTO MODE / FOLLOWING" if game.auto_mode else ("SPECTATING" if following else "YOUR PIPE"), 53, 16, MUTED)
-	centered(game.sim.rider_name(game.watch_id if following else 0), 89, 28, game.sim.rider_color(game.watch_id if following else 0))
+	centered(game.sim.rider_name(game.watch_id if following else game.player_rider_id()), 89, 28,
+		game.sim.rider_color(game.watch_id if following else game.player_rider_id()))
 	draw_leaderboard(focus_id)
 	panel(Rect2(24, size.y - 192, 252, 136))
 	label_at(game.sim.rider_name(focus_id) + " / SCORE" if game.auto_mode else "YOUR SCORE", Vector2(44, size.y - 161), 17, MUTED)
@@ -904,13 +905,15 @@ func draw_play_messages() -> void:
 			var lost_width := minf(456.0, bounds.x - 32.0)
 			panel(Rect2((bounds.x - lost_width) / 2.0, h - 230, lost_width, 76))
 			centered("PIPE LOST", h - 201, 20, Color("ffb65a"))
-			centered("Restarting..." if game.endless_mode and game.auto_mode else "Tap PAUSE to watch survivors",
+			centered("Server respawns your pipe" if game.online_mode else
+				("Restarting..." if game.endless_mode and game.auto_mode else "Tap PAUSE to watch survivors"),
 				h - 174, 15, MUTED)
 		elif game.endless_mode:
 			panel(Rect2(size.x / 2 - 228, h - 230, 456, 76))
 			centered("PIPE LOST / " + str(sim.riders[game.player_rider_id()].cause).to_upper(), h - 201, 20, Color("ffb65a"))
-			centered("Your pipe returns automatically / session continues" if game.auto_mode
-				else "Press R or click Restart / session continues", h - 174, 17, MUTED)
+			centered("Server respawns your pipe / session continues" if game.online_mode
+				else ("Your pipe returns automatically / session continues" if game.auto_mode
+				else "Press R or click Restart / session continues"), h - 174, 17, MUTED)
 		else:
 			panel(Rect2(size.x / 2 - 228, h - 230, 456, 76))
 			centered("PIPE LOST / " + str(sim.riders[game.player_rider_id()].cause).to_upper(), h - 201, 20, Color("ffb65a"))

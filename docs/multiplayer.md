@@ -31,7 +31,7 @@ The title screen's **ONLINE** panel has three browser friendly paths:
 
 After the server welcomes a player, full snapshots include rider stats and trail history. The client rebuilds the 3D pipe renderer from that authoritative history, then applies tick moves and join/leave snapshots. Solo play continues to use the local simulation.
 
-Join snapshots keep the most recent 512 trail segments per actor so a long Endless session cannot create an unbounded payload.
+Join snapshots include every live trail segment, so a late joiner can see every cell that still blocks movement. Dead riders' trails are removed from the room and its history.
 
 Room hosts have server hooks for locking a room and kicking a peer. Those controls are intentionally protocol-level for now so a moderation UI can be added without changing simulation authority.
 

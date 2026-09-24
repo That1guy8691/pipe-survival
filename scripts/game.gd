@@ -15,6 +15,8 @@ const RESPAWN_RETRY_DELAY := 0.75
 const TITLE_PREVIEW_STEPS := 60
 const CRASH_VIEW_DURATION := 1.25
 const COLLISION_FEEDBACK_DURATION := 2.0
+const ONLINE_BACKLOG_LIMIT := 3
+const ONLINE_CATCH_UP_STEPS := 8
 var sim := Rules.new()
 var motion := Motion.new(sim)
 var pipes := PipeRenderer.new()
@@ -68,6 +70,9 @@ var online_player_slot := -1
 var online_last_state: Dictionary = {}
 var online_mode := false
 var online_progress := 0.0
+var online_step_duration := Rules.STEP_TIME
+var online_step_active := false
+var online_state_queue: Array[Dictionary] = []
 
 func _ready() -> void:
 	respawn_rng.randomize()
@@ -116,6 +121,9 @@ func _ready() -> void:
 
 func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
 	online_mode = false
+	online_state_queue.clear()
+	online_step_active = false
+	online_progress = 0.0
 	pipes.player_id = 0
 	title_preview_steps_left = 0
 	crash_view_time = 0.0
@@ -323,6 +331,7 @@ func collision_label_for_player_crash(move: Dictionary) -> String:
 		var owner_id: int = int(move.get("pipe_owner", -1))
 		if owner_id >= 0:
 			return "CRASHED INTO " + sim.rider_name(owner_id).to_upper()
+		return "PIPE COLLISION"
 	if cause == "Your own pipe":
 		return "OWN PIPE COLLISION"
 	return "WALL IMPACT"
@@ -330,6 +339,14 @@ func collision_label_for_player_crash(move: Dictionary) -> String:
 func _process(delta: float) -> void:
 	fov_message_time = maxf(0.0, fov_message_time - delta)
 	collision_feedback_time = maxf(0.0, collision_feedback_time - delta)
+	if online_mode and state in ["playing", "paused"] and online_step_active:
+		var skipped := 0
+		while online_state_queue.size() > ONLINE_BACKLOG_LIMIT and skipped < ONLINE_CATCH_UP_STEPS:
+			_finish_online_step()
+			skipped += 1
+		online_progress = minf(1.0, online_progress + delta / online_step_duration)
+		if online_progress >= 1.0:
+			_finish_online_step()
 	if state == "ready":
 		advance_title_preview()
 	elif state == "countdown":
@@ -337,9 +354,7 @@ func _process(delta: float) -> void:
 		if countdown <= 0.0:
 			state = "playing"
 	elif state == "playing":
-		if online_mode:
-			online_progress = fmod(online_progress + delta / Rules.STEP_TIME, 1.0)
-		else:
+		if not online_mode:
 			motion.boost_requested = boost_held
 			motion.advance(minf(delta, 0.1))
 		score_message_time = maxf(0.0, score_message_time - delta)
@@ -546,6 +561,8 @@ func connect_online(server_url: String, room_id: String) -> void:
 	online_mode = false
 	online_player_slot = -1
 	online_last_state.clear()
+	online_state_queue.clear()
+	online_step_active = false
 	hud.queue_redraw()
 	var error := online_client.connect_to_room(normalized_url, normalized_room, player_name, player_color)
 	if error != OK:
@@ -560,6 +577,8 @@ func disconnect_online() -> void:
 	online_player_slot = -1
 	online_status = "OFFLINE"
 	online_last_state.clear()
+	online_state_queue.clear()
+	online_step_active = false
 	hud.queue_redraw()
 
 func _on_online_welcome(message: Dictionary) -> void:
@@ -576,6 +595,8 @@ func _on_online_welcome(message: Dictionary) -> void:
 	camera.overview = true
 	camera.initialized = false
 	online_progress = 0.0
+	online_state_queue.clear()
+	online_step_active = false
 	var player: Dictionary = message.get("player", {})
 	online_player_slot = int(player.get("slot", -1))
 	var room: Dictionary = message.get("room", {})
@@ -585,7 +606,15 @@ func _on_online_welcome(message: Dictionary) -> void:
 
 func _on_online_state(message: Dictionary) -> void:
 	online_last_state = message
-	_apply_online_state(message)
+	if bool(message.get("full_snapshot", false)):
+		online_state_queue.clear()
+		online_step_active = false
+		online_progress = 0.0
+		_apply_online_state(message)
+	else:
+		online_state_queue.append(message)
+		if not online_step_active:
+			_begin_online_step()
 	if online_connected:
 		online_status = "SYNCED / TICK %d" % int(message.get("tick", 0))
 	hud.queue_redraw()
@@ -599,6 +628,8 @@ func _on_online_event(message: Dictionary) -> void:
 func _on_online_rejected(reason: String) -> void:
 	online_connected = false
 	online_mode = false
+	online_state_queue.clear()
+	online_step_active = false
 	online_player_slot = -1
 	online_status = "REJECTED / " + reason
 	hud.queue_redraw()
@@ -606,6 +637,8 @@ func _on_online_rejected(reason: String) -> void:
 func _on_online_connection_failed(reason: String) -> void:
 	online_connected = false
 	online_mode = false
+	online_state_queue.clear()
+	online_step_active = false
 	online_status = "CONNECT ERROR / " + reason
 	hud.queue_redraw()
 
@@ -614,6 +647,8 @@ func _on_online_disconnected(reason: String) -> void:
 		return
 	online_connected = false
 	online_mode = false
+	online_state_queue.clear()
+	online_step_active = false
 	online_player_slot = -1
 	online_status = "DISCONNECTED" if reason.is_empty() else "DISCONNECTED / " + reason
 	hud.queue_redraw()
@@ -663,6 +698,44 @@ func _wire_move(wire: Dictionary) -> Dictionary:
 		"died": bool(wire.get("died", false)),
 		"pipe_owner": int(wire.get("pipe_owner", -1))}
 
+func _begin_online_step() -> void:
+	if online_state_queue.is_empty() or not online_mode:
+		return
+	var message: Dictionary = online_state_queue[0]
+	var moves: Array = message.get("moves", [])
+	if moves.is_empty():
+		online_state_queue.pop_front()
+		_apply_online_state(message)
+		_begin_online_step()
+		return
+	for raw_move in moves:
+		if not raw_move is Dictionary:
+			continue
+		var move := _wire_move(raw_move)
+		if move.id >= 0 and move.id < sim.riders.size():
+			pipes.begin_rider(move.id,
+				{"cell": move.cell, "forward": move.incoming, "up": move.up, "alive": true},
+				move.outgoing)
+	online_progress = 0.0
+	# A short catch-up step prevents an occasional packet burst from growing into seconds of delay.
+	online_step_duration = maxf(0.2, Rules.STEP_TIME / (1.0 + 0.25 * max(0, online_state_queue.size() - 1)))
+	online_step_active = true
+
+func _finish_online_step() -> void:
+	if not online_step_active or online_state_queue.is_empty():
+		return
+	var message: Dictionary = online_state_queue.pop_front()
+	for raw_move in message.get("moves", []):
+		if not raw_move is Dictionary:
+			continue
+		var rider_id := int(raw_move.get("id", -1))
+		if rider_id >= 0 and rider_id < sim.riders.size():
+			pipes.animate_rider(rider_id, 1.0)
+	_apply_online_state(message)
+	online_progress = 0.0
+	online_step_active = false
+	_begin_online_step()
+
 func _apply_online_state(message: Dictionary) -> void:
 	if not online_mode:
 		return
@@ -670,6 +743,9 @@ func _apply_online_state(message: Dictionary) -> void:
 	if wires.is_empty():
 		return
 	var full := bool(message.get("full_snapshot", false))
+	var previously_alive: Array[bool] = []
+	for rider: Dictionary in sim.riders:
+		previously_alive.append(bool(rider.alive))
 	if full or sim.riders.size() != wires.size():
 		sim.endless_mode = endless_mode
 		sim.reset(int(str(message.get("tick", 0))) + 1701, maxi(wires.size() - 1, 1), 60,
@@ -706,19 +782,23 @@ func _apply_online_state(message: Dictionary) -> void:
 		camera.initialized = false
 	else:
 		var moves: Array[Dictionary] = []
+		var player_crash: Dictionary = {}
 		for raw_move in message.get("moves", []):
 			var move := _wire_move(raw_move)
 			moves.append(move)
-			if move.id >= 0 and move.id < sim.riders.size():
-				pipes.begin_rider(move.id,
-					{"cell": move.cell, "forward": move.incoming, "up": move.up, "alive": true},
-					move.outgoing)
-				if move.died and sim.endless_mode:
-					pipes.remove_rider(move.id)
+			if move.id == player_rider_id() and move.died:
+				player_crash = move
 		pipes.commit(moves)
+		if not player_crash.is_empty():
+			collision_position = collision_world_position(player_crash)
+			collision_feedback_label = collision_label_for_player_crash(player_crash)
+			collision_feedback_time = COLLISION_FEEDBACK_DURATION
+			camera.trigger_impact(1.0)
 		for i in range(mini(wires.size(), sim.riders.size())):
 			if sim.riders[i].alive:
 				pipes.begin_rider(i, sim.riders[i], sim.riders[i].forward)
+				if i >= previously_alive.size() or not previously_alive[i]:
+					pipes.restore_rider(i, sim.riders[i])
 		online_progress = 0.0
 	if online_connected:
 		online_status = "SYNCED / TICK %d" % sim.ticks

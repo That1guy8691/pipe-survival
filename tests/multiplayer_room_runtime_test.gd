@@ -35,6 +35,15 @@ func _initialize() -> void:
 	check(state.type == "state" and state.room.room_id == "PUBLIC"
 		and state.tick == first.sim.ticks and state.riders.size() == 32,
 		"Runtime state messages include room identity and all actor snapshots")
+	var long_trail: Array = first.trail_history[0]
+	long_trail.clear()
+	for i in range(513):
+		long_trail.append({"id": 0, "cell": Vector3i(i % 30, i / 30 % 30, 2),
+			"target": Vector3i((i + 1) % 30, i / 30 % 30, 2),
+			"incoming": Vector3i.RIGHT, "outgoing": Vector3i.RIGHT, "up": Vector3i.UP})
+	var full_state := Protocol.parse_packet(first.state_message([], true).to_utf8_buffer())
+	check(full_state.history[0].size() == 513,
+		"Full snapshots retain trails beyond 512 segments so occupied cells stay visible")
 	var left := first.leave(101, "quit")
 	check(bool(left.ok) and first.room.human_count() == 0 and first.client_ids().is_empty(),
 		"Leaving a runtime returns its slot to the bot pool")

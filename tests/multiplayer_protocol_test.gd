@@ -41,5 +41,12 @@ func _initialize() -> void:
 		"State messages serialize grid cells and colors for browser clients")
 	check(bool(state.full_snapshot) and state.history.size() == 1 and state.history[0].size() == 1,
 		"Full snapshots include authoritative trail history")
+	var collision_move: Dictionary = history[0][0].duplicate()
+	collision_move["died"] = true
+	collision_move["pipe_owner"] = 7
+	var collision_state := Protocol.parse_packet(Protocol.state_message({"room_id": "ROOM"},
+		10, riders, [collision_move]).to_utf8_buffer())
+	check(collision_state.moves[0].pipe_owner == 7,
+		"Live moves identify the pipe responsible for an online collision")
 	print("MULTIPLAYER PROTOCOL: %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)
