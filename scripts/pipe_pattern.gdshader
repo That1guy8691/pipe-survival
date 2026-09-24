@@ -3,6 +3,10 @@ render_mode cull_disabled;
 
 uniform vec4 pipe_color : source_color;
 uniform vec4 accent_color : source_color;
+uniform vec4 detail_color : source_color;
+uniform bool custom_accent = false;
+uniform bool custom_detail = false;
+uniform float glow_scale = 1.0;
 uniform int pattern = 0;
 uniform int finish = 0;
 // 0 keeps raised, plain collars; 1 smooths them and carries the pattern through.
@@ -76,17 +80,26 @@ void fragment() {
 		vec3 chrome_reflection = mix(pipe_color.rgb, vec3(1.0), 0.2 + highlight * 0.65);
 		color = mix(chrome_shadow, chrome_reflection, 0.3 + highlight * 0.7);
 		color *= 1.0 - dark_reflection * 0.4;
+		if (custom_accent) {
+			color = mix(color, accent_color.rgb, highlight * 0.38);
+		}
 	}
 	float collar = smoothstep(0.125, 0.145, UV.y) * (1.0 - smoothstep(0.855, 0.875, UV.y));
 	if (pattern == 3) {
 		// Keep the stripe phase aligned to the rider's up frame at every elbow.
 		color = hsv_to_rgb(vec3(around, 0.9, 1.0));
+		if (custom_accent) {
+			color = mix(color, accent_color.rgb, 0.22);
+		}
 	} else if (pattern != 8) {
 		if (joint_style == 0) {
 			// The collared style leaves each raised joint plain.
 			marking *= collar;
 		}
 		color = mix(pipe_color.rgb, accent_color.rgb, marking);
+	}
+	if (custom_detail && joint_style == 0 && (UV.y < 0.07 || UV.y > 0.93)) {
+		color = detail_color.rgb;
 	}
 	color *= display_brightness;
 	ALBEDO = color;
@@ -109,9 +122,12 @@ void fragment() {
 		metallic = 0.5;
 		roughness = 0.09;
 	}
+	if (glow_scale < 1.0) {
+		roughness = max(roughness, 0.48);
+	}
 	METALLIC = metallic;
 	ROUGHNESS = roughness;
-	SPECULAR = 0.72;
+	SPECULAR = 0.72 * min(glow_scale, 1.0);
 	float emission_strength = 0.13;
 	if (finish == 2) {
 		emission_strength = 0.08;
@@ -122,7 +138,7 @@ void fragment() {
 	}
 	if (pattern == 8) {
 		emission_strength = 0.22;
-		SPECULAR = 1.0;
+		SPECULAR = min(glow_scale, 1.0);
 	}
-	EMISSION = color * emission_strength;
+	EMISSION = color * emission_strength * glow_scale;
 }

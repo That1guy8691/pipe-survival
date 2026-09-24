@@ -9,6 +9,9 @@ var current_color := Color.TRANSPARENT
 var current_pattern := -1
 var current_finish := -1
 var current_joint_style := -1
+var current_secondary := Color.TRANSPARENT
+var current_detail := Color.TRANSPARENT
+var current_reduced_glow := false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -58,16 +61,23 @@ func _ready() -> void:
 	request_update()
 
 func set_appearance(color: Color, pattern: int, finish: int = Appearance.Finish.ALLOY,
-		joint_style: int = Appearance.JointStyle.COLLARED) -> void:
+		joint_style: int = Appearance.JointStyle.COLLARED,
+		secondary: Color = Color.TRANSPARENT, detail: Color = Color.TRANSPARENT,
+		reduced_glow: bool = false) -> void:
 	if current_color == color and current_pattern == pattern and current_finish == finish \
-			and current_joint_style == joint_style:
+			and current_joint_style == joint_style and current_secondary == secondary \
+			and current_detail == detail and current_reduced_glow == reduced_glow:
 		return
 	current_color = color
 	current_pattern = pattern
 	current_finish = finish
 	current_joint_style = joint_style
+	current_secondary = secondary
+	current_detail = detail
+	current_reduced_glow = reduced_glow
 	for material in materials:
-		Appearance.apply(material, color, pattern, finish, joint_style)
+		Appearance.apply(material, color, pattern, finish, joint_style, secondary, detail,
+			0.2 if reduced_glow else 1.0)
 	request_update()
 
 func request_update() -> void:

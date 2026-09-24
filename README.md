@@ -7,15 +7,21 @@ Choose 7, 15, 23, or 31 bots on the title screen; the default is 15.
 Choose a 40, 60, 80, or 100-unit cube with the Arena Size dropdown; the default is 60.
 Adjust the camera's base field of view from 60° to 110° in Game Options.
 Both dropdowns and the Start, Resume, and Back to Title buttons support mouse clicks.
-Game Options lets you choose a pipe color and a surface finish (Standard Alloy, Brushed Steel,
-Ceramic, Polymer, or Rubber), plus a pattern: Solid, Stripes, Spots, Rainbow, Helix, Checker,
-Crosshatch, Rings, or Chrome. The live 3D preview shows your selections on straight sections and
-a curved elbow. Chrome uses bright, polished metal. Other patterns keep the collars plain, while
-Rainbow carries smooth longitudinal bands continuously around turns and collars. Joint Style lets
-you keep the raised collars (default) or run the pattern across a smooth pipe. Finish, pattern,
-and joint selections stay
-with your pipe across rounds and Endless respawns. Bots randomly choose among all nine patterns
-each round and retain their pattern when they respawn. Your selections last for the current game session.
+Game Options lets you choose primary, secondary, and detail colors for your pipe. Secondary defaults
+to an accent derived from the primary color; detail defaults to the primary color. Secondary colors
+mark patterns, including a subtle tint on Rainbow and Chrome. Detail colors mark raised collars,
+heads, and wall inlets. You can return either extra color to Auto. Choose a surface finish (Standard
+Alloy, Brushed Steel, Ceramic, Polymer, or Rubber) and a pattern: Solid, Stripes, Spots, Rainbow,
+Helix, Checker, Crosshatch, Rings, or Chrome. The live 3D preview shows the selections on straight
+sections and a curved elbow. Joint Style keeps raised collars (default) or runs the pattern across
+a smooth pipe. Finish, pattern, joint, and color selections stay with your pipe across rounds and
+Endless respawns.
+
+For local bots, choose a Standard, Muted, Neon, or Custom color palette. Custom has saturation and
+brightness sliders. Bot Pattern Mix can use all patterns, Subtle, Bold, or a custom set of checked
+patterns. Bots pick from the selected mix each round and on Endless respawn. Reduced Glow lowers
+pipe, head, and inlet emission and softens glossy highlights, including in the preview. These
+appearance settings last for the current game session.
 Pipes grow from colored, bolted wall inlets distributed across all six faces.
 Pickups and bot paths use the outer lanes as well as the center of the cube.
 Turn on Auto Mode to watch every pipe steer and boost itself. Completed rounds

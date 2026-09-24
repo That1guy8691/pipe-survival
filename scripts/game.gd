@@ -3,6 +3,7 @@ extends Node3D
 const Rules = preload("res://scripts/simulation.gd")
 const Motion = preload("res://scripts/motion.gd")
 const PipeRenderer = preload("res://scripts/pipe_renderer.gd")
+const BotStyle = preload("res://scripts/bot_style.gd")
 const Arena = preload("res://scripts/arena.gd")
 const CameraRig = preload("res://scripts/camera_rig.gd")
 const Hud = preload("res://scripts/hud.gd")
@@ -29,9 +30,17 @@ var bot_count := Rules.DEFAULT_BOTS
 var arena_width := 60
 var player_name := "YOU"
 var player_color := Color("56eddf")
+var player_secondary_color := Color.TRANSPARENT
+var player_detail_color := Color.TRANSPARENT
 var player_pattern := PipeRenderer.Appearance.Pattern.SOLID
 var player_material := PipeRenderer.Appearance.Finish.ALLOY
 var player_joint_style := PipeRenderer.Appearance.JointStyle.COLLARED
+var bot_palette := BotStyle.Palette.STANDARD
+var bot_custom_saturation := 0.65
+var bot_custom_brightness := 0.8
+var bot_pattern_mix := BotStyle.PatternMix.ALL
+var bot_custom_pattern_mask := BotStyle.ALL_PATTERNS_MASK
+var reduced_glow := false
 var arena: Node3D
 var turn_queue: Array[String]:
 	get: return motion.turn_queue
@@ -131,6 +140,9 @@ func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
 	collision_feedback_label = ""
 	sim.endless_mode = endless_mode and not title_preview
 	sim.reset(seed_value, bot_count, arena_width, player_name, player_color)
+	for i in range(1, sim.riders.size()):
+		sim.riders[i].color = BotStyle.color_for(sim.riders[i].color, bot_palette,
+			bot_custom_saturation, bot_custom_brightness)
 	respawn_timers.clear()
 	for i in range(sim.riders.size()):
 		respawn_timers.append(-1.0)
@@ -146,6 +158,12 @@ func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
 	pipes.player_pattern = player_pattern
 	pipes.player_material = player_material
 	pipes.player_joint_style = player_joint_style
+	pipes.player_secondary_color = player_secondary_color
+	pipes.player_detail_color = player_detail_color
+	pipes.bot_palette = bot_palette
+	pipes.bot_pattern_mix = bot_pattern_mix
+	pipes.bot_custom_pattern_mask = bot_custom_pattern_mask
+	pipes.reduced_glow = reduced_glow
 	pipes.reset(sim.riders.size())
 	motion.autoplay = auto_mode
 	motion.reset()

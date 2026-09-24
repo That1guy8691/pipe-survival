@@ -4,10 +4,17 @@ const Rules = preload("res://scripts/simulation.gd")
 const Geometry = preload("res://scripts/pipe_geometry.gd")
 const Inlet = preload("res://scripts/pipe_inlet.gd")
 const Appearance = preload("res://scripts/pipe_appearance.gd")
+const BotStyle = preload("res://scripts/bot_style.gd")
 enum OverviewStyle { NORMAL, HIGHLIGHT, ENDS }
 var player_pattern := Appearance.Pattern.SOLID
 var player_material := Appearance.Finish.ALLOY
 var player_joint_style := Appearance.JointStyle.COLLARED
+var player_secondary_color := Color.TRANSPARENT
+var player_detail_color := Color.TRANSPARENT
+var bot_palette := BotStyle.Palette.STANDARD
+var bot_pattern_mix := BotStyle.PatternMix.ALL
+var bot_custom_pattern_mask := BotStyle.ALL_PATTERNS_MASK
+var reduced_glow := false
 var player_id := 0
 var pattern_rng := RandomNumberGenerator.new()
 var model
@@ -103,20 +110,28 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 		plans.append({})
 		var rider: Dictionary = model.riders[i]
 		var pipe_color: Color = model.rider_color(i)
-		# Pick once per round; respawns reuse each rider's appearance.
-		var pattern := player_pattern if i == player_id else pattern_rng.randi_range(
-			Appearance.Pattern.SOLID, Appearance.Pattern.CHROME)
+		# Pick for this round; Endless respawns draw again from the selected mix.
+		var pattern := player_pattern if i == player_id else BotStyle.choose_pattern(pattern_rng,
+			bot_pattern_mix, bot_custom_pattern_mask)
 		var finish := player_material if i == player_id else Appearance.Finish.ALLOY
 		var joint_style := player_joint_style if i == player_id else pattern_rng.randi_range(
 			Appearance.JointStyle.COLLARED, Appearance.JointStyle.SEAMLESS)
+		var secondary := player_secondary_color if i == player_id else Color.TRANSPARENT
+		var detail := player_detail_color if i == player_id else Color.TRANSPARENT
+		var glow := glow_for(i)
 		for batch: MultiMeshInstance3D in batches[i]:
-			Appearance.apply(batch.material_override, pipe_color, pattern, finish, joint_style)
-		inlet_materials[i].albedo_color = pipe_color
-		inlet_materials[i].emission = pipe_color * 0.13
-		Appearance.apply(active_materials[i], pipe_color, pattern, finish, joint_style)
+			Appearance.apply(batch.material_override, pipe_color, pattern, finish, joint_style,
+				secondary, detail, glow)
+		var fitting_color := detail if detail.a > 0.0 else pipe_color
+		inlet_materials[i].albedo_color = fitting_color
+		inlet_materials[i].emission = fitting_color * 0.13 * glow
+		inlet_materials[i].roughness = 0.5 if reduced_glow else 0.28
+		Appearance.apply(active_materials[i], pipe_color, pattern, finish, joint_style,
+			secondary, detail, glow)
 		var head_material := heads[i].material_override as StandardMaterial3D
-		head_material.albedo_color = pipe_color.lightened(0.25)
-		head_material.emission = pipe_color * 0.5
+		head_material.albedo_color = fitting_color.lightened(0.25)
+		head_material.emission = fitting_color * 0.5 * glow
+		head_material.roughness = 0.5 if reduced_glow else 0.28
 		markers[i].text = model.rider_name(i)
 		markers[i].modulate = pipe_color
 		var forward: Vector3i = rider.source_forward
@@ -127,15 +142,22 @@ func reroll_bot_appearance(index: int) -> void:
 	if index <= 0 or index >= active_materials.size():
 		return
 	var old_pattern := int(active_materials[index].get_shader_parameter("pattern"))
-	var pattern_offset := pattern_rng.randi_range(0, Appearance.Pattern.size() - 2)
-	var pattern := pattern_offset + 1 if pattern_offset >= old_pattern else pattern_offset
+	var pattern := BotStyle.choose_pattern(pattern_rng, bot_pattern_mix,
+		bot_custom_pattern_mask, old_pattern)
 	var joint_style := pattern_rng.randi_range(
 		Appearance.JointStyle.COLLARED, Appearance.JointStyle.SEAMLESS)
 	var pipe_color: Color = model.rider_color(index)
+	var glow := glow_for(index)
 	for batch: MultiMeshInstance3D in batches[index]:
-		Appearance.apply(batch.material_override, pipe_color, pattern, Appearance.Finish.ALLOY, joint_style)
+		Appearance.apply(batch.material_override, pipe_color, pattern, Appearance.Finish.ALLOY,
+			joint_style, Color.TRANSPARENT, Color.TRANSPARENT, glow)
 	Appearance.apply(active_materials[index], pipe_color, pattern,
-		Appearance.Finish.ALLOY, joint_style)
+		Appearance.Finish.ALLOY, joint_style, Color.TRANSPARENT, Color.TRANSPARENT, glow)
+
+func glow_for(index: int) -> float:
+	if reduced_glow:
+		return 0.2
+	return 1.8 if index != player_id and bot_palette == BotStyle.Palette.NEON else 1.0
 
 func set_overview_style(style: int, focus_id: int) -> void:
 	if style == applied_overview_style and focus_id == applied_focus_id:
@@ -169,15 +191,20 @@ func set_overview_style(style: int, focus_id: int) -> void:
 				head_emission = 1.15
 				inlet_emission = 0.55
 		var pipe_color: Color = model.rider_color(i)
+		var fitting_color := player_detail_color if i == player_id and player_detail_color.a > 0.0 else pipe_color
+		var glow := glow_for(i)
+		if reduced_glow:
+			head_brightness = minf(head_brightness, 1.0)
+			inlet_brightness = minf(inlet_brightness, 1.0)
 		for batch: MultiMeshInstance3D in batches[i]:
 			(batch.material_override as ShaderMaterial).set_shader_parameter(
 				"display_brightness", trail_brightness)
 		active_materials[i].set_shader_parameter("display_brightness", trail_brightness)
 		var head_material := heads[i].material_override as StandardMaterial3D
-		head_material.albedo_color = scale_rgb(pipe_color.lightened(0.25), head_brightness)
-		head_material.emission = pipe_color * head_emission
-		inlet_materials[i].albedo_color = scale_rgb(pipe_color, inlet_brightness)
-		inlet_materials[i].emission = pipe_color * inlet_emission
+		head_material.albedo_color = scale_rgb(fitting_color.lightened(0.25), head_brightness)
+		head_material.emission = fitting_color * head_emission * glow
+		inlet_materials[i].albedo_color = scale_rgb(fitting_color, inlet_brightness)
+		inlet_materials[i].emission = fitting_color * inlet_emission * glow
 		markers[i].modulate = Color(pipe_color.r, pipe_color.g, pipe_color.b, label_alpha)
 
 static func scale_rgb(color: Color, factor: float) -> Color:

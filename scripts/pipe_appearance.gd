@@ -10,13 +10,20 @@ const JOINT_NAMES := ["Collared", "Seamless"]
 const SHADER = preload("res://scripts/pipe_pattern.gdshader")
 
 static func apply(material: ShaderMaterial, color: Color, pattern: int,
-		finish: int = Finish.ALLOY, joint_style: int = JointStyle.COLLARED) -> void:
+		finish: int = Finish.ALLOY, joint_style: int = JointStyle.COLLARED,
+		secondary: Color = Color.TRANSPARENT, detail: Color = Color.TRANSPARENT,
+		glow_scale: float = 1.0) -> void:
 	material.set_shader_parameter("pipe_color", color)
 	material.set_shader_parameter("pattern", clampi(pattern, Pattern.SOLID, Pattern.CHROME))
 	material.set_shader_parameter("finish", clampi(finish, Finish.ALLOY, Finish.RUBBER))
 	material.set_shader_parameter("joint_style", clampi(joint_style, JointStyle.COLLARED, JointStyle.SEAMLESS))
-	var accent := color.darkened(0.65) if color.get_luminance() > 0.3 else color.lightened(0.65)
+	var accent := secondary if secondary.a > 0.0 else (color.darkened(0.65)
+		if color.get_luminance() > 0.3 else color.lightened(0.65))
 	material.set_shader_parameter("accent_color", accent)
+	material.set_shader_parameter("detail_color", detail if detail.a > 0.0 else color)
+	material.set_shader_parameter("custom_accent", secondary.a > 0.0)
+	material.set_shader_parameter("custom_detail", detail.a > 0.0)
+	material.set_shader_parameter("glow_scale", glow_scale)
 
 static func rainbow_phase(incoming: Vector3i, outgoing: Vector3i, up: Vector3i) -> float:
 	var forward_axis := -Vector3(incoming)
@@ -27,10 +34,12 @@ static func rainbow_phase(incoming: Vector3i, outgoing: Vector3i, up: Vector3i) 
 
 static func material(color: Color, pattern: int = Pattern.SOLID,
 		segment_length: float = 2.0, fill: float = 1.0,
-		finish: int = Finish.ALLOY, joint_style: int = JointStyle.COLLARED) -> ShaderMaterial:
+		finish: int = Finish.ALLOY, joint_style: int = JointStyle.COLLARED,
+		secondary: Color = Color.TRANSPARENT, detail: Color = Color.TRANSPARENT,
+		glow_scale: float = 1.0) -> ShaderMaterial:
 	var result := ShaderMaterial.new()
 	result.shader = SHADER
-	apply(result, color, pattern, finish, joint_style)
+	apply(result, color, pattern, finish, joint_style, secondary, detail, glow_scale)
 	result.set_shader_parameter("segment_length", segment_length)
 	result.set_shader_parameter("fill", fill)
 	return result

@@ -17,8 +17,9 @@ const ACCENT := Color("56eddf")
 const PLAYER_COLOR := Color("56eddf")
 const OPTIONS_VIEW_TOP := 168.0
 const OPTIONS_VIEW_INSET := 38.0
-const OPTIONS_VIEW_HEIGHT := 408.0
+const OPTIONS_VIEW_HEIGHT := 500.0
 const Appearance = preload("res://scripts/pipe_appearance.gd")
+const BotStyle = preload("res://scripts/bot_style.gd")
 const PipePreview = preload("res://scripts/pipe_preview.gd")
 const Scoring = preload("res://scripts/scoring.gd")
 var game: Node
@@ -43,9 +44,19 @@ var online_server_entry := LineEdit.new()
 var online_room_entry := LineEdit.new()
 var player_color_picker := ColorPickerButton.new()
 var player_color_label := Label.new()
+var secondary_color_picker := ColorPickerButton.new()
+var detail_color_picker := ColorPickerButton.new()
+var secondary_auto := Button.new()
+var detail_auto := Button.new()
 var pattern_selector := OptionButton.new()
 var material_selector := OptionButton.new()
 var joint_selector := OptionButton.new()
+var bot_palette_selector := OptionButton.new()
+var bot_mix_selector := OptionButton.new()
+var bot_saturation_slider := HSlider.new()
+var bot_brightness_slider := HSlider.new()
+var bot_pattern_checks: Array[CheckBox] = []
+var reduced_glow_toggle := CheckButton.new()
 var pipe_preview := PipePreview.new()
 var auto_toggle := Button.new()
 var hud_toggle := Button.new()
@@ -271,6 +282,27 @@ func _ready() -> void:
 	player_color_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	player_color_label.add_theme_font_override("font", font)
 	player_color_label.add_theme_font_size_override("font_size", 16)
+	for picker in [secondary_color_picker, detail_color_picker]:
+		options_content.add_child(picker)
+		picker.edit_alpha = false
+		picker.focus_mode = Control.FOCUS_NONE
+		picker.add_theme_stylebox_override("normal", box(Color("23384d"), 7))
+		picker.add_theme_stylebox_override("hover", box(Color("30485c"), 7))
+	secondary_color_picker.tooltip_text = "Color for pattern markings; AUTO derives it from the primary color"
+	detail_color_picker.tooltip_text = "Color for collars, pipe heads, and wall inlets"
+	secondary_color_picker.color_changed.connect(func(value: Color): game.player_secondary_color = value)
+	detail_color_picker.color_changed.connect(func(value: Color): game.player_detail_color = value)
+	for button in [secondary_auto, detail_auto]:
+		options_content.add_child(button)
+		button.text = "AUTO"
+		button.focus_mode = Control.FOCUS_NONE
+		button.add_theme_font_override("font", font)
+		button.add_theme_font_size_override("font_size", 13)
+		button.add_theme_color_override("font_color", INK)
+		button.add_theme_stylebox_override("normal", box(Color("23384d"), 7))
+		button.add_theme_stylebox_override("hover", box(Color("30485c"), 7))
+	secondary_auto.pressed.connect(func(): game.player_secondary_color = Color.TRANSPARENT)
+	detail_auto.pressed.connect(func(): game.player_detail_color = Color.TRANSPARENT)
 	options_content.add_child(pattern_selector)
 	for i in range(Appearance.NAMES.size()):
 		pattern_selector.add_item(Appearance.NAMES[i], i)
@@ -303,6 +335,58 @@ func _ready() -> void:
 	joint_selector.add_theme_stylebox_override("hover", selector_hover)
 	joint_selector.item_selected.connect(func(index: int):
 		game.player_joint_style = joint_selector.get_item_id(index))
+	for selector in [bot_palette_selector, bot_mix_selector]:
+		options_content.add_child(selector)
+		selector.focus_mode = Control.FOCUS_NONE
+		selector.add_theme_font_override("font", font)
+		selector.add_theme_font_size_override("font_size", 18)
+		selector.add_theme_stylebox_override("normal", selector_normal)
+		selector.add_theme_stylebox_override("hover", selector_hover)
+	for i in range(BotStyle.PALETTE_NAMES.size()):
+		bot_palette_selector.add_item(BotStyle.PALETTE_NAMES[i], i)
+	for i in range(BotStyle.MIX_NAMES.size()):
+		bot_mix_selector.add_item(BotStyle.MIX_NAMES[i], i)
+	bot_palette_selector.item_selected.connect(func(index: int):
+		game.bot_palette = bot_palette_selector.get_item_id(index)
+		game.show_title())
+	bot_mix_selector.item_selected.connect(func(index: int):
+		game.bot_pattern_mix = bot_mix_selector.get_item_id(index)
+		game.show_title())
+	for slider in [bot_saturation_slider, bot_brightness_slider]:
+		options_content.add_child(slider)
+		slider.min_value = 0.0
+		slider.max_value = 1.0
+		slider.step = 0.01
+		slider.focus_mode = Control.FOCUS_NONE
+	bot_brightness_slider.min_value = 0.35
+	bot_saturation_slider.value_changed.connect(func(value: float):
+		game.bot_custom_saturation = value
+		if game.bot_palette == BotStyle.Palette.CUSTOM:
+			game.show_title())
+	bot_brightness_slider.value_changed.connect(func(value: float):
+		game.bot_custom_brightness = value
+		if game.bot_palette == BotStyle.Palette.CUSTOM:
+			game.show_title())
+	for i in range(Appearance.NAMES.size()):
+		var check := CheckBox.new()
+		check.text = Appearance.NAMES[i]
+		check.button_pressed = true
+		check.focus_mode = Control.FOCUS_NONE
+		check.add_theme_font_override("font", font)
+		check.add_theme_font_size_override("font_size", 15)
+		check.add_theme_color_override("font_color", INK)
+		options_content.add_child(check)
+		bot_pattern_checks.append(check)
+		check.toggled.connect(func(enabled: bool): set_custom_bot_pattern(i, enabled))
+	options_content.add_child(reduced_glow_toggle)
+	reduced_glow_toggle.text = "REDUCED GLOW"
+	reduced_glow_toggle.focus_mode = Control.FOCUS_NONE
+	reduced_glow_toggle.add_theme_font_override("font", font)
+	reduced_glow_toggle.add_theme_font_size_override("font_size", 17)
+	reduced_glow_toggle.add_theme_color_override("font_color", INK)
+	reduced_glow_toggle.toggled.connect(func(enabled: bool):
+		game.reduced_glow = enabled
+		game.show_title())
 	pipe_preview.visible = false
 	options_content.add_child(pipe_preview)
 	build_touch_controls()
@@ -461,7 +545,7 @@ func fit_menu(panel_height: float) -> void:
 
 func overlay_panel_height() -> float:
 	if game.state == "ready" and options_open:
-		return 790.0 if touch_ui_enabled else 664.0
+		return 790.0 if touch_ui_enabled else 760.0
 	return 560.0 if touch_ui_enabled else 520.0
 
 func menu_target_height(base_height: float) -> float:
@@ -490,13 +574,39 @@ func update_menu_control_scale() -> void:
 	online_server_entry.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	online_room_entry.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	player_color_label.add_theme_font_size_override("font_size", menu_control_font_size(16))
+	for button in [secondary_auto, detail_auto]:
+		button.add_theme_font_size_override("font_size", menu_control_font_size(13))
 	pattern_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	material_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	joint_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
+	for selector in [bot_palette_selector, bot_mix_selector]:
+		selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
+	for check in bot_pattern_checks:
+		check.add_theme_font_size_override("font_size", menu_control_font_size(15))
+	reduced_glow_toggle.add_theme_font_size_override("font_size", menu_control_font_size(17))
 
 func options_max_scroll() -> float:
-	var fov_slider_y := 596.0 if touch_ui_enabled else 479.0
-	return maxf(76.0, fov_slider_y - OPTIONS_VIEW_INSET + menu_target_height(22.0) - OPTIONS_VIEW_HEIGHT)
+	var fov_slider_y: float = options_layout().fov_slider_y
+	return maxf(0.0, fov_slider_y - OPTIONS_VIEW_INSET + menu_target_height(22.0)
+		- options_content.size.y + 20.0)
+
+func options_layout() -> Dictionary:
+	var row_gap := menu_target_height(46.0) + 32.0 if touch_ui_enabled else 75.0
+	var preview_y := (269.0 if touch_ui_enabled else 219.0) + row_gap * 3.0 - 18.0
+	var preview_height := 90.0 if touch_ui_enabled else 96.0
+	var bot_field_y := preview_y + preview_height + 40.0
+	var custom_label_y := bot_field_y + menu_target_height(46.0) + 16.0
+	var custom_slider_y := custom_label_y + 14.0
+	var pattern_label_y := custom_slider_y + menu_target_height(30.0) + 28.0
+	var checks_y := pattern_label_y + 13.0
+	var check_step := menu_target_height(33.0) + 6.0
+	var reduced_y := checks_y + check_step * 3.0 + 4.0
+	var fov_label_y := reduced_y + menu_target_height(46.0) + 16.0
+	return {"row_gap": row_gap, "preview_y": preview_y, "preview_height": preview_height,
+		"bot_field_y": bot_field_y, "custom_label_y": custom_label_y,
+		"custom_slider_y": custom_slider_y, "pattern_label_y": pattern_label_y,
+		"checks_y": checks_y, "check_step": check_step, "reduced_y": reduced_y,
+		"fov_label_y": fov_label_y, "fov_slider_y": fov_label_y + 14.0}
 
 func menu_text_font_size(text: String, base_size: int, max_width: float, numeric: bool) -> int:
 	if not overlay_draw_active or not touch_ui_enabled:
@@ -598,6 +708,24 @@ func finish_options() -> void:
 	options_scroll_offset = 0.0
 	game.show_title()
 
+func set_custom_bot_pattern(index: int, enabled: bool) -> void:
+	var bit := 1 << index
+	var mask: int = game.bot_custom_pattern_mask
+	mask = mask | bit if enabled else mask & ~bit
+	if mask == 0:
+		bot_pattern_checks[index].set_pressed_no_signal(true)
+		return
+	game.bot_custom_pattern_mask = mask
+	if game.bot_pattern_mix == BotStyle.PatternMix.CUSTOM:
+		game.show_title()
+
+func sync_color_picker(picker: ColorPickerButton, color: Color) -> void:
+	if picker.color == color:
+		return
+	picker.set_block_signals(true)
+	picker.color = color
+	picker.set_block_signals(false)
+
 func close_menu_page() -> void:
 	if controls_open:
 		controls_open = false
@@ -673,13 +801,25 @@ func _process(_delta: float) -> void:
 		player_name_entry.visible = options_content.visible
 		player_color_picker.visible = options_content.visible
 		player_color_label.visible = options_content.visible
+		secondary_color_picker.visible = options_content.visible
+		detail_color_picker.visible = options_content.visible
+		secondary_auto.visible = options_content.visible
+		detail_auto.visible = options_content.visible
 		pattern_selector.visible = options_content.visible
 		material_selector.visible = options_content.visible
 		joint_selector.visible = options_content.visible
+		bot_palette_selector.visible = options_content.visible
+		bot_mix_selector.visible = options_content.visible
+		bot_saturation_slider.visible = options_content.visible
+		bot_brightness_slider.visible = options_content.visible
+		for check in bot_pattern_checks:
+			check.visible = options_content.visible
+		reduced_glow_toggle.visible = options_content.visible
 		pipe_preview.visible = options_content.visible
 		if pipe_preview.visible:
 			pipe_preview.set_appearance(game.player_color, game.player_pattern,
-				game.player_material, game.player_joint_style)
+				game.player_material, game.player_joint_style,
+				game.player_secondary_color, game.player_detail_color, game.reduced_glow)
 		auto_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and (options_open or controls_open))
 		auto_toggle.set_pressed_no_signal(game.auto_mode)
 		hud_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and (options_open or controls_open))
@@ -1200,18 +1340,21 @@ func draw_title_mode_controls(rect: Rect2, offset_y: float) -> void:
 func draw_options_page(rect: Rect2) -> void:
 	centered("ROUND OPTIONS", rect.position.y + 64, 31)
 	centered("ROUND AND PLAYER SETTINGS", rect.position.y + 94, 14, ACCENT)
-	centered("Choose color, pattern, material, and joints; scroll for camera settings.",
+	centered("Set your pipe and bot looks. Scroll for all appearance options.",
 		rect.position.y + 130, 16, MUTED)
 	var name_label_y := 123.0 if not touch_ui_enabled else 144.0
 	var name_field_y := 135.0 if not touch_ui_enabled else 160.0
 	var color_label_y := 207.0 if not touch_ui_enabled else 253.0
 	var color_field_y := 219.0 if not touch_ui_enabled else 269.0
-	var material_label_y := 281.0 if not touch_ui_enabled else 361.0
-	var material_field_y := 293.0 if not touch_ui_enabled else 377.0
-	var preview_y := 349.0 if not touch_ui_enabled else 463.0
-	var preview_height := 96.0 if not touch_ui_enabled else 90.0
-	var fov_label_y := 470.0 if not touch_ui_enabled else 582.0
-	var fov_slider_y := 479.0 if not touch_ui_enabled else 596.0
+	var layout := options_layout()
+	var row_gap: float = layout.row_gap
+	var detail_field_y := color_field_y + row_gap
+	var material_field_y := color_field_y + row_gap * 2.0
+	var preview_y: float = layout.preview_y
+	var preview_height: float = layout.preview_height
+	var bot_field_y: float = layout.bot_field_y
+	var fov_label_y: float = layout.fov_label_y
+	var fov_slider_y: float = layout.fov_slider_y
 	draw_set_transform(menu_canvas.position + Vector2(0, (OPTIONS_VIEW_TOP - options_scroll_offset) * menu_canvas.scale.y),
 		0.0, menu_canvas.scale)
 	draw_option_label("BOT COUNT", Vector2(38, 40.0 - OPTIONS_VIEW_INSET), 15, MUTED)
@@ -1227,8 +1370,8 @@ func draw_options_page(rect: Rect2) -> void:
 		player_name_entry.text = game.player_name
 	player_name_entry.position = Vector2(38, name_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
 	player_name_entry.size = Vector2(484, menu_target_height(46))
-	draw_option_label("PIPE COLOR", Vector2(38, color_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
-	draw_option_label("PIPE PATTERN", Vector2(291, color_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("PRIMARY COLOR", Vector2(38, color_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("SECONDARY COLOR", Vector2(291, color_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
 	if player_color_picker.color != game.player_color:
 		player_color_picker.color = game.player_color
 	player_color_picker.position = Vector2(38, color_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
@@ -1237,11 +1380,26 @@ func draw_options_page(rect: Rect2) -> void:
 	player_color_label.size = player_color_picker.size
 	var label_color := Color("071d23") if game.player_color.get_luminance() > 0.48 else INK
 	player_color_label.add_theme_color_override("font_color", label_color)
-	pattern_selector.position = Vector2(291, color_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	var derived_accent: Color = game.player_color.darkened(0.65) if game.player_color.get_luminance() > 0.3 else game.player_color.lightened(0.65)
+	sync_color_picker(secondary_color_picker, game.player_secondary_color if game.player_secondary_color.a > 0.0 else derived_accent)
+	secondary_color_picker.position = Vector2(291, color_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	secondary_color_picker.size = Vector2(160, menu_target_height(46))
+	secondary_auto.position = Vector2(459, color_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	secondary_auto.size = Vector2(63, menu_target_height(46))
+	secondary_auto.modulate = ACCENT if game.player_secondary_color.a <= 0.0 else INK
+	draw_option_label("DETAIL COLOR", Vector2(38, detail_field_y - 12.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("PIPE PATTERN", Vector2(291, detail_field_y - 12.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	sync_color_picker(detail_color_picker, game.player_detail_color if game.player_detail_color.a > 0.0 else game.player_color)
+	detail_color_picker.position = Vector2(38, detail_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	detail_color_picker.size = Vector2(160, menu_target_height(46))
+	detail_auto.position = Vector2(206, detail_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	detail_auto.size = Vector2(63, menu_target_height(46))
+	detail_auto.modulate = ACCENT if game.player_detail_color.a <= 0.0 else INK
+	pattern_selector.position = Vector2(291, detail_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
 	pattern_selector.size = Vector2(231, menu_target_height(46))
 	pattern_selector.select(pattern_selector.get_item_index(game.player_pattern))
-	draw_option_label("PIPE MATERIAL", Vector2(38, material_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
-	draw_option_label("JOINT STYLE", Vector2(291, material_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("PIPE MATERIAL", Vector2(38, material_field_y - 12.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("JOINT STYLE", Vector2(291, material_field_y - 12.0 - OPTIONS_VIEW_INSET), 15, MUTED)
 	material_selector.position = Vector2(38, material_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
 	material_selector.size = Vector2(231, menu_target_height(46))
 	material_selector.select(material_selector.get_item_index(game.player_material))
@@ -1254,9 +1412,38 @@ func draw_options_page(rect: Rect2) -> void:
 	var preview_top := maxf(preview_content_top, options_scroll_offset)
 	var preview_bottom := minf(preview_content_top + pipe_preview.size.y,
 		options_scroll_offset + options_content.size.y)
-	if preview_bottom > preview_top:
+	pipe_preview.visible = preview_bottom - preview_top >= 30.0
+	if pipe_preview.visible:
 		panel(Rect2(Vector2(pipe_preview.position.x, preview_top),
 			Vector2(pipe_preview.size.x, preview_bottom - preview_top)), Color("162536"))
+	draw_option_label("BOT PALETTE", Vector2(38, bot_field_y - 12.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("BOT PATTERN MIX", Vector2(291, bot_field_y - 12.0 - OPTIONS_VIEW_INSET), 15, MUTED)
+	bot_palette_selector.position = Vector2(38, bot_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	bot_palette_selector.size = Vector2(231, menu_target_height(46))
+	bot_palette_selector.select(bot_palette_selector.get_item_index(game.bot_palette))
+	bot_mix_selector.position = Vector2(291, bot_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	bot_mix_selector.size = Vector2(231, menu_target_height(46))
+	bot_mix_selector.select(bot_mix_selector.get_item_index(game.bot_pattern_mix))
+	draw_option_label("CUSTOM SATURATION", Vector2(38, layout.custom_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("CUSTOM BRIGHTNESS", Vector2(291, layout.custom_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
+	bot_saturation_slider.position = Vector2(38, layout.custom_slider_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	bot_saturation_slider.size = Vector2(231, menu_target_height(30))
+	bot_saturation_slider.set_value_no_signal(game.bot_custom_saturation)
+	bot_saturation_slider.editable = game.bot_palette == BotStyle.Palette.CUSTOM
+	bot_brightness_slider.position = Vector2(291, layout.custom_slider_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	bot_brightness_slider.size = Vector2(231, menu_target_height(30))
+	bot_brightness_slider.set_value_no_signal(game.bot_custom_brightness)
+	bot_brightness_slider.editable = game.bot_palette == BotStyle.Palette.CUSTOM
+	draw_option_label("CUSTOM BOT PATTERNS", Vector2(38, layout.pattern_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
+	for i in range(bot_pattern_checks.size()):
+		var check := bot_pattern_checks[i]
+		check.position = Vector2(38 + (i % 3) * 163, layout.checks_y + floori(float(i) / 3.0) * layout.check_step - OPTIONS_VIEW_INSET - options_scroll_offset)
+		check.size = Vector2(158, menu_target_height(33))
+		check.disabled = game.bot_pattern_mix != BotStyle.PatternMix.CUSTOM
+		check.set_pressed_no_signal(bool(game.bot_custom_pattern_mask & (1 << i)))
+	reduced_glow_toggle.position = Vector2(38, layout.reduced_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	reduced_glow_toggle.size = Vector2(484, menu_target_height(46))
+	reduced_glow_toggle.set_pressed_no_signal(game.reduced_glow)
 	if not is_equal_approx(fov_slider.value, game.camera.base_fov):
 		fov_slider.set_value_no_signal(game.camera.base_fov)
 	draw_option_label("FIELD OF VIEW", Vector2(38, fov_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
@@ -1276,10 +1463,10 @@ func draw_options_page(rect: Rect2) -> void:
 	draw_set_transform(menu_canvas.position, 0.0, menu_canvas.scale)
 	options_back.visible = true
 	options_back.text = "DONE"
-	options_back.position = Vector2(38, 716 if touch_ui_enabled else 584)
+	options_back.position = Vector2(38, 716 if touch_ui_enabled else 686)
 	options_back.size = Vector2(484, menu_target_height(44))
 	if not touch_ui_enabled:
-		centered("PLAYING AS %s  /  %d BOTS  /  %dm CUBE" % [game.player_name, game.bot_count, game.arena_width], rect.position.y + 650.0, 14, MUTED)
+		centered("PLAYING AS %s  /  %d BOTS  /  %dm CUBE" % [game.player_name, game.bot_count, game.arena_width], rect.position.y + 744.0, 14, MUTED)
 
 func draw_option_label(text: String, position: Vector2, size_value: int, color: Color, numeric := false) -> void:
 	if position.y < options_scroll_offset or position.y > options_scroll_offset + options_content.size.y - 18.0:

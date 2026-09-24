@@ -152,6 +152,7 @@ func run() -> void:
 	check_turn_phase_continuity()
 	check_instance_phase_survives_growth(game)
 	check_bot_patterns(game)
+	check_custom_appearance(game)
 	print("PIPE PATTERNS: %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)
 
@@ -197,3 +198,35 @@ func check_bot_patterns(game) -> void:
 		check(seen.has(pattern), "Seeded bot selection must include %s" % Appearance.NAMES[pattern])
 	for joint_style in range(Appearance.JointStyle.size()):
 		check(seen_joint_styles.has(joint_style), "Seeded bot selection must include the %s joint style" % Appearance.JOINT_NAMES[joint_style])
+
+func check_custom_appearance(game) -> void:
+	var BotStyle = load("res://scripts/bot_style.gd")
+	game.bot_count = 7
+	game.player_pattern = Appearance.Pattern.STRIPES
+	game.player_joint_style = Appearance.JointStyle.COLLARED
+	game.player_secondary_color = Color("f0a642")
+	game.player_detail_color = Color("4670d8")
+	game.bot_palette = BotStyle.Palette.MUTED
+	game.bot_pattern_mix = BotStyle.PatternMix.CUSTOM
+	game.bot_custom_pattern_mask = (1 << Appearance.Pattern.SOLID) | (1 << Appearance.Pattern.RINGS)
+	game.reduced_glow = true
+	game.start_round(812)
+	var player_material: ShaderMaterial = game.pipes.active_materials[0]
+	check(player_material.get_shader_parameter("accent_color") == game.player_secondary_color
+		and player_material.get_shader_parameter("detail_color") == game.player_detail_color,
+		"Player secondary and detail colors reach the growing pipe")
+	check(game.pipes.batches[0][0].material_override.get_shader_parameter("detail_color") == game.player_detail_color
+		and game.pipes.inlet_materials[0].albedo_color == game.player_detail_color,
+		"Detail color reaches completed trails and wall fittings")
+	check(is_equal_approx(float(player_material.get_shader_parameter("glow_scale")), 0.2)
+		and game.pipes.heads[0].material_override.emission.r < game.player_detail_color.r * 0.5,
+		"Reduced Glow dims pipe and head emission")
+	for i in range(1, game.sim.riders.size()):
+		var bot_color: Color = game.sim.rider_color(i)
+		var bot_pattern: int = game.pipes.active_materials[i].get_shader_parameter("pattern")
+		check(bot_color.v <= 0.721 and bot_pattern in [Appearance.Pattern.SOLID, Appearance.Pattern.RINGS],
+			"Muted bots use the selected custom pattern mix")
+		game.pipes.reroll_bot_appearance(i)
+		check(game.pipes.active_materials[i].get_shader_parameter("pattern") in
+			[Appearance.Pattern.SOLID, Appearance.Pattern.RINGS],
+			"Bot respawn keeps the custom pattern mix")

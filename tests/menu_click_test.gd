@@ -1,6 +1,7 @@
 extends SceneTree
 ## Pointer events pass through viewport GUI hit-testing, with real frame gaps.
 const Appearance = preload("res://scripts/pipe_appearance.gd")
+const BotStyle = preload("res://scripts/bot_style.gd")
 var game
 var failures := 0
 var checks := 0
@@ -85,7 +86,9 @@ func scroll_options_to_fov() -> void:
 	var scale: float = game.hud.menu_canvas.scale.x
 	var point: Vector2 = game.hud.menu_canvas.position \
 		+ game.hud.options_content.position * scale + Vector2(280, 180) * scale
-	for _step in range(2):
+	for _step in range(30):
+		if game.hud.options_scroll_offset >= game.hud.options_max_scroll() - 1.0:
+			break
 		var event := InputEventMouseButton.new()
 		event.position = point
 		event.global_position = point
@@ -147,6 +150,20 @@ func run() -> void:
 		"Game Options shows the pipe pattern selector and live preview")
 	check(game.hud.joint_selector.visible and game.player_joint_style == Appearance.JointStyle.COLLARED,
 		"Joint styles are available with collars selected by default")
+	var secondary_color := Color("f0a642")
+	var detail_color := Color("4670d8")
+	game.hud.secondary_color_picker.color = secondary_color
+	game.hud.secondary_color_picker.emit_signal("color_changed", secondary_color)
+	game.hud.detail_color_picker.color = detail_color
+	game.hud.detail_color_picker.emit_signal("color_changed", detail_color)
+	for _frame in range(4):
+		if game.hud.pipe_preview.current_secondary == secondary_color \
+				and game.hud.pipe_preview.current_detail == detail_color:
+			break
+		await process_frame
+	check(game.hud.pipe_preview.materials[0].get_shader_parameter("accent_color") == secondary_color
+		and game.hud.pipe_preview.materials[0].get_shader_parameter("detail_color") == detail_color,
+		"Secondary and detail pickers update the live preview")
 	await choose(game.hud.pattern_selector, Appearance.Pattern.CHECKER)
 	await capture("menu-joints-collared.png")
 	await choose(game.hud.joint_selector, Appearance.JointStyle.SEAMLESS)
@@ -209,9 +226,20 @@ func run() -> void:
 	game.hud.player_color_picker.color = player_color
 	game.hud.player_color_picker.emit_signal("color_changed", player_color)
 	await scroll_options_to_fov()
-	check(is_equal_approx(game.hud.options_scroll_offset, 76.0),
+	check(is_equal_approx(game.hud.options_scroll_offset, game.hud.options_max_scroll()),
 		"Scrolling Game Options reveals the camera settings")
 	await capture("menu-options-scrolled.png")
+	await choose(game.hud.bot_palette_selector, BotStyle.Palette.MUTED)
+	check(game.bot_palette == BotStyle.Palette.MUTED and game.sim.rider_color(1).v <= 0.721,
+		"Bot palette selector applies muted colors to the preview round")
+	await choose(game.hud.bot_mix_selector, BotStyle.PatternMix.CUSTOM)
+	await click(game.hud.bot_pattern_checks[Appearance.Pattern.CHROME])
+	check(game.bot_pattern_mix == BotStyle.PatternMix.CUSTOM
+		and (game.bot_custom_pattern_mask & (1 << Appearance.Pattern.CHROME)) == 0,
+		"Custom pattern checkboxes change the allowed bot patterns")
+	await click(game.hud.reduced_glow_toggle)
+	check(game.reduced_glow and is_equal_approx(float(game.pipes.active_materials[0].get_shader_parameter("glow_scale")), 0.2),
+		"Reduced Glow switch updates the rendered pipes")
 	var original_fov: float = game.camera.base_fov
 	await click(game.hud.fov_slider)
 	var selected_fov: float = game.camera.base_fov
@@ -227,8 +255,8 @@ func run() -> void:
 		"Pipe marker reflects the selected player identity")
 	var player_pipe_material := game.pipes.batches[0][0].material_override as ShaderMaterial
 	check(player_pipe_material.get_shader_parameter("pipe_color") == player_color
-		and game.pipes.inlet_materials[0].albedo_color == player_color,
-		"Selected color reaches the pipe trail and wall inlet")
+		and game.pipes.inlet_materials[0].albedo_color == detail_color,
+		"Selected primary and detail colors reach the trail and wall inlet")
 	check(player_pipe_material.get_shader_parameter("pattern") == 2
 		and game.pipes.active_materials[0].get_shader_parameter("pattern") == 2,
 		"Selected spots reach completed and growing player pipes")
