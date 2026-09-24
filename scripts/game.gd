@@ -635,6 +635,7 @@ func _on_online_state(message: Dictionary) -> void:
 		online_progress = 0.0
 		_apply_online_state(message)
 	else:
+		_apply_online_orbs(message)
 		online_state_queue.append(message)
 		if not online_step_active:
 			_begin_online_step()
@@ -795,10 +796,8 @@ func _apply_online_state(message: Dictionary) -> void:
 	sim.ticks = int(message.get("tick", sim.ticks))
 	sim.finished = false
 	sim.winner = -1
-	sim.scoring.orbs.clear()
-	for raw_orb in message.get("orbs", []):
-		if raw_orb is Dictionary:
-			sim.scoring.orbs[_vector_from_wire(raw_orb.get("cell"))] = int(raw_orb.get("points", 0))
+	if full:
+		_apply_online_orbs(message)
 	var histories: Array = []
 	if full:
 		sim.occupied.clear()
@@ -842,6 +841,16 @@ func _apply_online_state(message: Dictionary) -> void:
 		online_status = "SYNCED / TICK %d" % sim.ticks
 	orbs.sync(sim.scoring)
 	hud.queue_redraw()
+
+func _apply_online_orbs(message: Dictionary) -> void:
+	var server_orbs: Dictionary = {}
+	for raw_orb in message.get("orbs", []):
+		if raw_orb is Dictionary:
+			server_orbs[_vector_from_wire(raw_orb.get("cell"))] = int(raw_orb.get("points", 0))
+	if sim.scoring.orbs != server_orbs:
+		sim.scoring.orbs = server_orbs
+		sim.scoring.revision += 1
+		orbs.sync(sim.scoring)
 
 func roll_bot_respawn_delay() -> float:
 	return respawn_rng.randf_range(BOT_RESPAWN_MIN_DELAY, BOT_RESPAWN_MAX_DELAY)

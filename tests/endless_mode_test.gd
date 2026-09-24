@@ -87,6 +87,25 @@ func run() -> void:
 				sim.occupied[Vector3i(a, b, side)] = 1
 	check(not sim.respawn_rider(0) and not player.alive,
 		"A rider waits when every safe wall spawn is occupied")
+	var cramped := Rules.new()
+	cramped.endless_mode = true
+	cramped.reset(805, 1, 40)
+	cramped.riders[0].alive = false
+	cramped.occupied.clear()
+	for a in range(1, cramped.cell_count - 1):
+		for b in range(1, cramped.cell_count - 1):
+			for side in [0, cramped.cell_count - 1]:
+				cramped.occupied[Vector3i(side, a, b)] = 1
+				cramped.occupied[Vector3i(a, side, b)] = 1
+				cramped.occupied[Vector3i(a, b, side)] = 1
+	var only_inlet := Vector3i(0, 10, 10)
+	cramped.occupied.erase(only_inlet)
+	cramped.occupied[only_inlet + Vector3i.RIGHT * 2] = 1
+	check(not cramped.respawn_rider(0),
+		"Respawn waits instead of placing a rider one move from an occupied pipe")
+	cramped.occupied.erase(only_inlet + Vector3i.RIGHT * 2)
+	check(cramped.respawn_rider(0) and cramped.riders[0].cell == only_inlet,
+		"Respawn uses the inlet once a clear entry corridor is available")
 
 	await test_renderer_cleanup()
 	await test_title_mode_and_live_restart()

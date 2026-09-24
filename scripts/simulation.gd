@@ -8,6 +8,7 @@ const SPEED := 6.0
 const STEP_TIME := SPACING / SPEED
 const DEFAULT_BOTS := 15
 const MAX_BOTS := 31
+const MIN_SPAWN_RUNWAY := 4
 enum BotPersonality { COLLECTOR, BLOCKER, SURVIVOR }
 const Scoring = preload("res://scripts/scoring.gd")
 const COLORS := [Color("56eddf"), Color("ffb65a"), Color("aa8cff"),
@@ -207,7 +208,12 @@ func respawn_rider(index: int) -> bool:
 	for step in range(candidates.size()):
 		var candidate := candidates[(offset + step) % candidates.size()]
 		var inward := inlet_direction(candidate)
-		if is_open(candidate) and is_open(candidate + inward):
+		var runway_clear := true
+		for distance in range(MIN_SPAWN_RUNWAY + 1):
+			if not is_open(candidate + inward * distance):
+				runway_clear = false
+				break
+		if runway_clear:
 			spawn_cell = candidate
 			spawn_forward = inward
 			break

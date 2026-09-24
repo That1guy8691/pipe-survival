@@ -102,10 +102,11 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 		counts[i] = [0, 0]
 		for batch: MultiMeshInstance3D in batches[i]:
 			batch.multimesh.visible_instance_count = 0
-		active[i].visible = i < total
-		heads[i].visible = i < total
-		markers[i].visible = i < total
-		inlets[i].visible = i < total
+		var visible_rider: bool = i < total and bool(model.riders[i].alive)
+		active[i].visible = visible_rider
+		heads[i].visible = visible_rider
+		markers[i].visible = visible_rider
+		inlets[i].visible = visible_rider
 	for i in range(total):
 		plans.append({})
 		var rider: Dictionary = model.riders[i]

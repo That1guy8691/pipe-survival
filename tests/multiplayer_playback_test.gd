@@ -13,9 +13,9 @@ func check(condition: bool, description: String) -> void:
 		push_error(description)
 
 func packet(tick: int, riders: Array[Dictionary], moves: Array[Dictionary] = [],
-		full: bool = false) -> Dictionary:
+		full: bool = false, orbs: Dictionary = {}) -> Dictionary:
 	return Protocol.parse_packet(Protocol.state_message({"room_id": "TEST"}, tick, riders,
-		moves, [[], []] if full else [], full).to_utf8_buffer())
+		moves, [[], []] if full else [], full, orbs).to_utf8_buffer())
 
 func move(from_cell: Vector3i, to_cell: Vector3i, died: bool = false,
 		owner: int = -1) -> Dictionary:
@@ -55,6 +55,20 @@ func run() -> void:
 	game._on_online_state(packet(0, riders, [], true))
 	check(game.sim.riders.size() == 2 and game.sim.riders[0].cell == Vector3i(10, 10, 10),
 		"Full snapshot places the player at the authoritative cell")
+	var stale_orb := Vector3i(16, 12, 12)
+	var moved_orb := Vector3i(17, 12, 12)
+	var before_orbs: int = game.sim.scoring.revision
+	game._on_online_state(packet(0, riders, [], false, {stale_orb: 25}))
+	game._on_online_state(packet(0, riders, [], false, {moved_orb: 25}))
+	check(game.orbs.multimesh.instance_count == 1
+		and game.sim.scoring.orbs.has(moved_orb) and not game.sim.scoring.orbs.has(stale_orb)
+		and game.sim.scoring.revision == before_orbs + 2
+		and game.orbs.shown_revision == game.sim.scoring.revision,
+		"Online orb visuals follow each authoritative orb update")
+	if DisplayServer.get_name() != "headless":
+		check(game.orbs.multimesh.get_instance_transform(0).origin == game.sim.world(moved_orb),
+			"The rendered orb instance moves to the authoritative cell")
+	game._on_online_state(packet(0, riders))
 	var first_move := move(Vector3i(10, 10, 10), Vector3i(11, 10, 10))
 	var second_move := move(Vector3i(11, 10, 10), Vector3i(12, 10, 10))
 	var first_riders := riders.duplicate(true)
@@ -66,9 +80,12 @@ func run() -> void:
 		"The server move animates before it is committed")
 	game._process(Rules.STEP_TIME * 0.5)
 	var half_progress: float = game.online_progress
-	game._on_online_state(packet(2, second_riders, [second_move]))
+	game._on_online_state(packet(2, second_riders, [second_move], false, {moved_orb: 25}))
 	check(game.online_state_queue.size() == 2 and is_equal_approx(game.online_progress, half_progress),
 		"An early packet is buffered without snapping the active move")
+	check(game.sim.scoring.orbs.has(moved_orb)
+		and game.orbs.shown_revision == game.sim.scoring.revision,
+		"Latest orb positions are shown while an older pipe move is animating")
 	game._process(Rules.STEP_TIME * 0.5)
 	check(game.sim.ticks == 1 and game.sim.riders[0].cell == first_move.target
 		and game.online_step_active and is_zero_approx(game.online_progress),
@@ -123,6 +140,10 @@ func run() -> void:
 	check(game.sim.ticks == 7 and game.online_state_queue.size() == 3
 		and game.pipes.counts[0][0] == 3,
 		"A burst catches up old ticks without dropping their collision trails")
+	game._on_online_state(packet(11, dead_riders, [], true))
+	check(not game.pipes.inlets[0].visible and not game.pipes.heads[0].visible
+		and not game.pipes.markers[0].visible,
+		"Full snapshots hide the inlet and head of a dead rider")
 	game.queue_free()
 	await process_frame
 	print("MULTIPLAYER PLAYBACK: %d checks, %d failures" % [checks, failures])
