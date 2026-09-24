@@ -17,7 +17,8 @@ sections and a curved elbow. Joint Style keeps raised collars (default) or runs 
 a smooth pipe. Finish, pattern, joint, and color selections stay with your pipe across rounds and
 Endless respawns.
 
-For local bots, choose a Standard, Muted, Neon, or Custom color palette. Custom has saturation and
+The title screen's Bot Looks button opens the local-bot appearance controls directly. Choose a
+Standard, Muted, Neon, or Custom color palette. Custom has saturation and
 brightness sliders. Bot Pattern Mix can use all patterns, Subtle, Bold, or a custom set of checked
 patterns. Bots pick from the selected mix each round and on Endless respawn. Reduced Glow lowers
 pipe, head, and inlet emission and softens glossy highlights, including in the preview. These

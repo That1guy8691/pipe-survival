@@ -28,6 +28,7 @@ var mono := SystemFont.new()
 var primary := Button.new()
 var secondary := Button.new()
 var options_button := Button.new()
+var bot_looks_button := Button.new()
 var online_button := Button.new()
 var controls_button := Button.new()
 var options_back := Button.new()
@@ -72,6 +73,7 @@ var touch_pause := Button.new()
 var options_open := false
 var online_open := false
 var controls_open := false
+var bot_looks_focus := false
 var touch_ui_enabled := false
 var overlay_draw_active := false
 var touch_draw_active := false
@@ -101,7 +103,7 @@ func _ready() -> void:
 	options_content.position = Vector2(0, OPTIONS_VIEW_TOP)
 	options_content.size = Vector2(560, OPTIONS_VIEW_HEIGHT)
 	options_content.clip_contents = true
-	for button in [primary, secondary, options_button, online_button, controls_button, options_back,
+	for button in [primary, secondary, options_button, bot_looks_button, online_button, controls_button, options_back,
 			online_back, online_join, online_quick_match, online_host_public, online_private_join,
 			auto_toggle, hud_toggle, mode_toggle]:
 		menu_canvas.add_child(button)
@@ -123,7 +125,7 @@ func _ready() -> void:
 	primary.pressed.connect(func(): primary_clicked.emit())
 	secondary.pressed.connect(func(): secondary_clicked.emit())
 	quick_restart.pressed.connect(func(): quick_restart_clicked.emit())
-	for button in [secondary, options_button, online_button, controls_button, options_back, online_back]:
+	for button in [secondary, options_button, bot_looks_button, online_button, controls_button, options_back, online_back]:
 		button.add_theme_color_override("font_color", MUTED)
 		button.add_theme_stylebox_override("normal", box(Color("162536"), 9))
 		button.add_theme_stylebox_override("hover", box(Color("23384d"), 9))
@@ -132,7 +134,18 @@ func _ready() -> void:
 		options_open = true
 		online_open = false
 		controls_open = false
+		bot_looks_focus = false
 		options_scroll_offset = 0.0)
+	bot_looks_button.text = "BOT LOOKS"
+	bot_looks_button.tooltip_text = "Set local bot colors and patterns"
+	bot_looks_button.pressed.connect(func():
+		options_open = true
+		online_open = false
+		controls_open = false
+		bot_looks_focus = true
+		var bot_field_y: float = options_layout().bot_field_y
+		options_scroll_offset = clampf(bot_field_y - OPTIONS_VIEW_INSET - 24.0,
+			0.0, options_max_scroll()))
 	online_button.text = "ONLINE"
 	online_button.pressed.connect(func():
 		online_open = true
@@ -564,7 +577,8 @@ func update_menu_control_scale() -> void:
 	applied_menu_screen_scale = menu_screen_scale
 	for button in [primary, secondary, options_button, online_button, controls_button, options_back, online_back, online_join]:
 		button.add_theme_font_size_override("font_size", menu_control_font_size(20))
-	controls_button.add_theme_font_size_override("font_size", menu_control_font_size(17))
+	for button in [options_button, bot_looks_button, online_button, controls_button]:
+		button.add_theme_font_size_override("font_size", menu_control_font_size(13))
 	for button in [auto_toggle, hud_toggle]:
 		button.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	mode_toggle.add_theme_font_size_override("font_size", menu_control_font_size(15))
@@ -587,8 +601,12 @@ func update_menu_control_scale() -> void:
 
 func options_max_scroll() -> float:
 	var fov_slider_y: float = options_layout().fov_slider_y
-	return maxf(0.0, fov_slider_y - OPTIONS_VIEW_INSET + menu_target_height(22.0)
+	var max_scroll := maxf(0.0, fov_slider_y - OPTIONS_VIEW_INSET + menu_target_height(22.0)
 		- options_content.size.y + 20.0)
+	if bot_looks_focus:
+		var bot_start: float = options_layout().bot_field_y - OPTIONS_VIEW_INSET - 24.0
+		max_scroll = maxf(max_scroll, bot_start)
+	return max_scroll
 
 func options_layout() -> Dictionary:
 	var row_gap := menu_target_height(46.0) + 32.0 if touch_ui_enabled else 75.0
@@ -697,6 +715,7 @@ static func clean_player_name(value: String) -> String:
 func finish_options() -> void:
 	if game == null:
 		options_open = false
+		bot_looks_focus = false
 		return
 	game.player_name = clean_player_name(player_name_entry.text)
 	game.player_color = player_color_picker.color
@@ -705,6 +724,7 @@ func finish_options() -> void:
 	game.player_joint_style = joint_selector.get_selected_id()
 	player_name_entry.release_focus()
 	options_open = false
+	bot_looks_focus = false
 	options_scroll_offset = 0.0
 	game.show_title()
 
@@ -762,12 +782,14 @@ func _process(_delta: float) -> void:
 			options_open = false
 			online_open = false
 			controls_open = false
+			bot_looks_focus = false
 		options_content.size = Vector2(560, 530.0 if touch_ui_enabled else OPTIONS_VIEW_HEIGHT)
 		fit_menu(overlay_panel_height())
 		options_scroll_offset = clampf(options_scroll_offset, 0.0, options_max_scroll())
 		primary.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and (options_open or online_open or controls_open))
 		secondary.visible = game.state in ["paused", "finished"]
 		options_button.visible = game.state == "ready" and not options_open and not online_open and not controls_open
+		bot_looks_button.visible = game.state == "ready" and not options_open and not online_open and not controls_open
 		online_button.visible = game.state == "ready" and not options_open and not online_open and not controls_open
 		controls_button.visible = game.state == "ready" and not options_open and not online_open and not controls_open
 		options_back.visible = game.state == "ready" and (options_open or controls_open)
@@ -1204,7 +1226,7 @@ func draw_title_page(rect: Rect2) -> void:
 	var mode_height := menu_target_height(42)
 	draw_title_mode_controls(rect, 270)
 	options_button.visible = true
-	options_button.text = "OPTIONS"
+	bot_looks_button.visible = true
 	var options_y := 330.0
 	var primary_y := 389.0
 	var summary_y := 486.0
@@ -1212,16 +1234,18 @@ func draw_title_page(rect: Rect2) -> void:
 		options_y = 270.0 + mode_height + 12.0
 		primary_y = options_y + menu_target_height(43) + 12.0
 		summary_y = primary_y + menu_target_height(52) + 24.0
-	options_button.position = rect.position + Vector2(38, options_y)
-	options_button.size = Vector2(156, menu_target_height(43))
-	online_button.visible = true
-	online_button.text = "ONLINE"
-	online_button.position = rect.position + Vector2(202, options_y)
-	online_button.size = Vector2(156, menu_target_height(43))
-	controls_button.visible = true
-	controls_button.text = "CONTROLS"
-	controls_button.position = rect.position + Vector2(366, options_y)
-	controls_button.size = Vector2(156, menu_target_height(43))
+	var nav_buttons := [options_button, bot_looks_button, online_button, controls_button]
+	var nav_labels := ["ROUND", "BOT LOOKS", "ONLINE", "CONTROLS"]
+	if touch_ui_enabled:
+		nav_labels = ["ROUND", "BOTS", "ONLINE", "HELP"]
+	for i in range(nav_buttons.size()):
+		var nav_button: Button = nav_buttons[i]
+		nav_button.visible = true
+		nav_button.text = nav_labels[i]
+		nav_button.position = rect.position + Vector2(38 + i * 123, options_y)
+		nav_button.size = Vector2(115, menu_target_height(43))
+	options_button.tooltip_text = "Round setup and pipe appearance"
+	controls_button.tooltip_text = "Controls and views"
 	primary.visible = true
 	primary.text = "ENTER  /  WATCH AUTO MODE" if game.auto_mode else "ENTER  /  START ROUND"
 	primary.position = rect.position + Vector2(38, primary_y)
@@ -1338,10 +1362,11 @@ func draw_title_mode_controls(rect: Rect2, offset_y: float) -> void:
 	hud_toggle.size = Vector2(width, menu_target_height(42))
 
 func draw_options_page(rect: Rect2) -> void:
-	centered("ROUND OPTIONS", rect.position.y + 64, 31)
-	centered("ROUND AND PLAYER SETTINGS", rect.position.y + 94, 14, ACCENT)
-	centered("Set your pipe and bot looks. Scroll for all appearance options.",
-		rect.position.y + 130, 16, MUTED)
+	centered("BOT LOOKS" if bot_looks_focus else "ROUND OPTIONS", rect.position.y + 64, 31)
+	centered("LOCAL BOT COLOR + PATTERN CONTROLS" if bot_looks_focus else "ROUND AND PLAYER SETTINGS",
+		rect.position.y + 94, 14, ACCENT)
+	centered("Choose colors and pattern mix; Custom unlocks extra options." if bot_looks_focus else
+		"Set your pipe and bot looks. Scroll for all appearance options.", rect.position.y + 130, 16, MUTED)
 	var name_label_y := 123.0 if not touch_ui_enabled else 144.0
 	var name_field_y := 135.0 if not touch_ui_enabled else 160.0
 	var color_label_y := 207.0 if not touch_ui_enabled else 253.0
@@ -1412,7 +1437,7 @@ func draw_options_page(rect: Rect2) -> void:
 	var preview_top := maxf(preview_content_top, options_scroll_offset)
 	var preview_bottom := minf(preview_content_top + pipe_preview.size.y,
 		options_scroll_offset + options_content.size.y)
-	pipe_preview.visible = preview_bottom - preview_top >= 30.0
+	pipe_preview.visible = not bot_looks_focus and preview_bottom - preview_top >= 30.0
 	if pipe_preview.visible:
 		panel(Rect2(Vector2(pipe_preview.position.x, preview_top),
 			Vector2(pipe_preview.size.x, preview_bottom - preview_top)), Color("162536"))

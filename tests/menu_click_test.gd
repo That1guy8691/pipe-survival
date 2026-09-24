@@ -140,6 +140,25 @@ func run() -> void:
 		"The title mode button selects Endless without changing the existing round options")
 	await click(game.hud.mode_toggle)
 	check(not game.endless_mode, "The title mode button switches back to Survival")
+	await click(game.hud.bot_looks_button)
+	await process_frame
+	var bot_viewport: Rect2 = game.hud.options_content.get_global_rect()
+	check(game.hud.options_open and game.hud.bot_looks_focus
+		and bot_viewport.encloses(game.hud.bot_palette_selector.get_global_rect())
+		and bot_viewport.encloses(game.hud.bot_mix_selector.get_global_rect())
+		and bot_viewport.encloses(game.hud.bot_pattern_checks[0].get_global_rect()),
+		"Bot Looks opens directly to visible palette and pattern controls")
+	await capture("menu-bot-looks.png")
+	await choose(game.hud.bot_palette_selector, BotStyle.Palette.MUTED)
+	check(game.bot_palette == BotStyle.Palette.MUTED and game.sim.rider_color(1).v <= 0.721,
+		"Bot Looks applies the muted palette")
+	await choose(game.hud.bot_mix_selector, BotStyle.PatternMix.CUSTOM)
+	await click(game.hud.bot_pattern_checks[Appearance.Pattern.CHROME])
+	check(game.bot_pattern_mix == BotStyle.PatternMix.CUSTOM
+		and (game.bot_custom_pattern_mask & (1 << Appearance.Pattern.CHROME)) == 0,
+		"Bot Looks exposes editable custom pattern choices")
+	await click(game.hud.options_back)
+	await process_frame
 	await click(game.hud.options_button)
 	await process_frame
 	check(game.hud.options_open and game.hud.bot_selector.visible and game.hud.size_selector.visible
@@ -229,14 +248,6 @@ func run() -> void:
 	check(is_equal_approx(game.hud.options_scroll_offset, game.hud.options_max_scroll()),
 		"Scrolling Game Options reveals the camera settings")
 	await capture("menu-options-scrolled.png")
-	await choose(game.hud.bot_palette_selector, BotStyle.Palette.MUTED)
-	check(game.bot_palette == BotStyle.Palette.MUTED and game.sim.rider_color(1).v <= 0.721,
-		"Bot palette selector applies muted colors to the preview round")
-	await choose(game.hud.bot_mix_selector, BotStyle.PatternMix.CUSTOM)
-	await click(game.hud.bot_pattern_checks[Appearance.Pattern.CHROME])
-	check(game.bot_pattern_mix == BotStyle.PatternMix.CUSTOM
-		and (game.bot_custom_pattern_mask & (1 << Appearance.Pattern.CHROME)) == 0,
-		"Custom pattern checkboxes change the allowed bot patterns")
 	await click(game.hud.reduced_glow_toggle)
 	check(game.reduced_glow and is_equal_approx(float(game.pipes.active_materials[0].get_shader_parameter("glow_scale")), 0.2),
 		"Reduced Glow switch updates the rendered pipes")
@@ -321,6 +332,17 @@ func run() -> void:
 	game.show_title()
 	await process_frame
 	await capture("menu-main-touch.png")
+	await click(game.hud.bot_looks_button)
+	await process_frame
+	var touch_bot_viewport: Rect2 = game.hud.options_content.get_global_rect()
+	check(game.hud.bot_looks_focus
+		and touch_bot_viewport.encloses(game.hud.bot_palette_selector.get_global_rect())
+		and touch_bot_viewport.encloses(game.hud.bot_mix_selector.get_global_rect())
+		and touch_bot_viewport.encloses(game.hud.bot_pattern_checks[0].get_global_rect()),
+		"Bot Looks keeps palette and pattern controls visible on a touch-sized screen")
+	await capture("menu-bot-looks-touch.png")
+	await click(game.hud.options_back)
+	await process_frame
 	await click(game.hud.controls_button)
 	await process_frame
 	check(game.hud.controls_open and game.hud.options_back.visible
