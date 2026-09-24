@@ -9,6 +9,8 @@ signal touch_view_requested
 signal touch_overview_style_requested
 signal touch_overview_focus_requested
 signal touch_pause_requested
+signal touch_camera_orbit_requested(relative: Vector2)
+signal touch_camera_zoom_requested(distance_change: float)
 const INK := Color("e8f2f5")
 const MUTED := Color("8da4b8")
 const ACCENT := Color("56eddf")
@@ -56,6 +58,9 @@ var joystick_touch_index := -1
 var joystick_vector := Vector2.ZERO
 var joystick_direction := ""
 var joystick_pending_direction := ""
+var joystick_center_position := Vector2.ZERO
+var camera_touch_points: Dictionary = {}
+var camera_pinch_distance := 0.0
 var options_scroll_offset := 0.0
 var options_drag_index := -1
 var options_drag_start := Vector2.ZERO
@@ -192,7 +197,7 @@ func _ready() -> void:
 	player_color_picker.add_theme_stylebox_override("hover", box(PLAYER_COLOR.lightened(0.2), 7))
 	player_color_picker.color_changed.connect(func(value: Color): game.player_color = value)
 	options_content.add_child(player_color_label)
-	player_color_label.text = "CHANGE COLOR"
+	player_color_label.text = "EDIT COLOR"
 	player_color_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	player_color_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	player_color_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -263,19 +268,22 @@ func screen_size() -> Vector2:
 	return size / ui_scale_factor()
 
 func touch_joystick_center() -> Vector2:
+	if joystick_touch_index != -1:
+		return joystick_center_position
 	var available := screen_size()
 	return Vector2(120.0, available.y - 108.0)
 
-func touch_joystick_radius() -> float:
-	return 94.0 * ui_scale_factor()
+func touch_control_scale() -> float:
+	var available := screen_size()
+	return clampf(minf(available.x / 420.0, available.y / 620.0), 0.72, 1.0)
 
 func update_touch_joystick(position: Vector2) -> void:
 	var factor := ui_scale_factor()
 	var displacement := position - touch_joystick_center() * factor
-	var radius := 66.0 * factor
+	var radius := 66.0 * touch_control_scale() * factor
 	var distance := displacement.length()
 	joystick_vector = displacement.limit_length(radius) / radius
-	if distance < 12.0 * factor:
+	if distance < 12.0 * touch_control_scale() * factor:
 		joystick_direction = ""
 		joystick_pending_direction = ""
 		queue_redraw()
@@ -299,7 +307,56 @@ func release_touch_joystick() -> void:
 	joystick_vector = Vector2.ZERO
 	joystick_direction = ""
 	joystick_pending_direction = ""
+	joystick_center_position = Vector2.ZERO
 	queue_redraw()
+
+func touch_camera_active() -> bool:
+	return game != null and touch_ui_enabled and game.state in ["playing", "countdown", "paused"] \
+		and game.crash_view_time <= 0.0
+
+func touch_steering_zone(position: Vector2) -> bool:
+	return game != null and not game.auto_mode and game.sim.riders[0].alive \
+		and position.x <= size.x * 0.5 and position.y >= size.y * 0.42
+
+func touch_camera_control_at(position: Vector2) -> bool:
+	for button in [touch_boost, touch_view, touch_overview_style, touch_overview_focus, touch_pause]:
+		if button.visible and button.get_global_rect().has_point(position):
+			return true
+	return false
+
+func update_touch_camera_gesture(event: InputEvent) -> void:
+	if event is InputEventScreenTouch:
+		if not event.pressed:
+			if camera_touch_points.has(event.index):
+				camera_touch_points.erase(event.index)
+				camera_pinch_distance = touch_camera_points_distance()
+			return
+		if not touch_camera_active() or touch_camera_control_at(event.position) \
+				or (touch_steering_zone(event.position) and camera_touch_points.is_empty()):
+			return
+		camera_touch_points[event.index] = event.position
+		camera_pinch_distance = touch_camera_points_distance()
+	elif event is InputEventScreenDrag and camera_touch_points.has(event.index):
+		if not touch_camera_active():
+			camera_touch_points.erase(event.index)
+			camera_pinch_distance = touch_camera_points_distance()
+			return
+		camera_touch_points[event.index] = event.position
+		if camera_touch_points.size() >= 2:
+			var next_distance := touch_camera_points_distance()
+			if camera_pinch_distance > 0.0:
+				touch_camera_zoom_requested.emit(next_distance - camera_pinch_distance)
+			camera_pinch_distance = next_distance
+		else:
+			touch_camera_orbit_requested.emit(event.relative)
+
+func touch_camera_points_distance() -> float:
+	if camera_touch_points.size() < 2:
+		return 0.0
+	var points: Array = camera_touch_points.values()
+	var first_point: Vector2 = points[0]
+	var second_point: Vector2 = points[1]
+	return first_point.distance_to(second_point)
 
 func fit_menu(panel_height: float) -> void:
 	var available := screen_size()
@@ -338,9 +395,8 @@ func update_menu_control_scale() -> void:
 	pattern_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
 
 func options_max_scroll() -> float:
-	if not touch_ui_enabled:
-		return 76.0
-	return maxf(76.0, 434.0 - OPTIONS_VIEW_INSET + menu_target_height(22.0) - OPTIONS_VIEW_HEIGHT)
+	var fov_slider_y := 434.0 if touch_ui_enabled else 414.0
+	return maxf(76.0, fov_slider_y - OPTIONS_VIEW_INSET + menu_target_height(22.0) - OPTIONS_VIEW_HEIGHT)
 
 func menu_text_font_size(text: String, base_size: int, max_width: float, numeric: bool) -> int:
 	if not overlay_draw_active or not touch_ui_enabled:
@@ -369,12 +425,14 @@ func _input(event: InputEvent) -> void:
 		if game != null:
 			game.update_hud_visibility()
 		queue_redraw()
+	update_touch_camera_gesture(event)
 	if game != null and touch_ui_enabled and game.state in ["playing", "countdown"] \
 			and not game.auto_mode and game.sim.riders[0].alive:
 		if event is InputEventScreenTouch:
 			if event.pressed and joystick_touch_index == -1 \
-					and event.position.distance_to(touch_joystick_center() * ui_scale_factor()) <= touch_joystick_radius():
+					and camera_touch_points.is_empty() and touch_steering_zone(event.position):
 				joystick_touch_index = event.index
+				joystick_center_position = event.position / ui_scale_factor()
 				update_touch_joystick(event.position)
 				get_viewport().set_input_as_handled()
 			elif not event.pressed and event.index == joystick_touch_index:
@@ -479,7 +537,8 @@ func _process(_delta: float) -> void:
 		quick_restart.text = ("RESPAWNING..." if game.auto_mode else "WAITING FOR SPACE") if game.player_respawn_pending else ("RESTART PIPE" if game.endless_mode else "RESTART ROUND")
 		var ui_factor := ui_scale_factor()
 		var available := screen_size()
-		update_touch_scale(ui_factor)
+		var touch_scale := touch_control_scale()
+		update_touch_scale(ui_factor * touch_scale)
 		quick_restart.position = Vector2((available.x - 228.0) / 2.0, (available.y - 44.0) / 2.0 if touch_ui_enabled else available.y - 145.0) * ui_factor
 		quick_restart.size = Vector2(228, 44) * ui_factor
 		options_content.visible = game.state == "ready" and options_open
@@ -503,27 +562,27 @@ func _process(_delta: float) -> void:
 		if not steer_visible and joystick_touch_index != -1:
 			release_touch_joystick()
 		touch_boost.visible = steer_visible
-		touch_boost.position = Vector2(available.x - 166, available.y - 112) * ui_factor
-		touch_boost.size = Vector2(146, 90) * ui_factor
+		touch_boost.position = Vector2(available.x - 172 * touch_scale, available.y - 118 * touch_scale) * ui_factor
+		touch_boost.size = Vector2(152, 96) * touch_scale * ui_factor
 		if not game.sim.riders.is_empty():
 			touch_boost.text = "BOOST\n%d%%" % roundi(game.sim.riders[0].pressure * 100.0)
 		touch_view.visible = touch_active
-		touch_view.position = Vector2(available.x - 124, 124) * ui_factor
-		touch_view.size = Vector2(108, 44) * ui_factor
+		touch_view.position = Vector2(available.x - 128 * touch_scale, 124 * touch_scale) * ui_factor
+		touch_view.size = Vector2(120, 48) * touch_scale * ui_factor
 		touch_overview_style.visible = overview_active
-		touch_overview_style.position = Vector2(available.x - 164, 174) * ui_factor
-		touch_overview_style.size = Vector2(144, 44) * ui_factor
+		touch_overview_style.position = Vector2(available.x - 168 * touch_scale, 180 * touch_scale) * ui_factor
+		touch_overview_style.size = Vector2(160, 48) * touch_scale * ui_factor
 		touch_overview_style.text = "PIPES / " + game.overview_style_name()
 		touch_overview_focus.visible = overview_active
-		touch_overview_focus.position = Vector2(available.x - 164, 224) * ui_factor
-		touch_overview_focus.size = Vector2(144, 44) * ui_factor
+		touch_overview_focus.position = Vector2(available.x - 168 * touch_scale, 236 * touch_scale) * ui_factor
+		touch_overview_focus.size = Vector2(160, 48) * touch_scale * ui_factor
 		var focus_name: String = game.sim.rider_name(game.overview_focus_id).to_upper()
 		if focus_name.length() > 10:
 			focus_name = focus_name.left(9) + "…"
 		touch_overview_focus.text = "NEXT / " + focus_name
 		touch_pause.visible = touch_active
-		touch_pause.position = Vector2(available.x - 78, 16) * ui_factor
-		touch_pause.size = Vector2(62, 44) * ui_factor
+		touch_pause.position = Vector2(available.x - 82 * touch_scale, 16 * touch_scale) * ui_factor
+		touch_pause.size = Vector2(72, 48) * touch_scale * ui_factor
 	queue_redraw()
 
 func _draw() -> void:
@@ -664,14 +723,14 @@ func draw_touch_game_hud() -> void:
 	label_at("%d / %d ALIVE" % [game.sim.alive_ids().size(), game.sim.riders.size()], Vector2(30, 45), 18, INK)
 	if bounds.x >= 360.0:
 		label_at("SCORE %d   /   %d ORBS" % [rider.score, rider.orb_count], Vector2(30, 73), 15, MUTED)
-		var status := "AUTO / TAP PAUSE" if game.auto_mode else "THUMBSTICK STEERS / HOLD BOOST"
+		var status := "AUTO / TAP PAUSE" if game.auto_mode else "LEFT STEERS / RIGHT ORBITS"
 		if rider.combo_count > 1:
 			status = "COMBO x%.1f / %.1fs" % [rider.combo_multiplier, rider.combo_time]
 		label_at(status,
 			Vector2(30, 99), 13, ACCENT)
 	else:
 		label_at("SCORE %d" % rider.score, Vector2(30, 73), 15, MUTED)
-		var status := "AUTO / PAUSE" if game.auto_mode else "STICK / BOOST"
+		var status := "AUTO / PAUSE" if game.auto_mode else "LEFT STEERS / RIGHT ORBITS"
 		if rider.combo_count > 1:
 			status = "COMBO x%.1f" % rider.combo_multiplier
 		label_at(status, Vector2(30, 99), 13, ACCENT)
@@ -681,15 +740,17 @@ func draw_touch_game_hud() -> void:
 
 func draw_touch_joystick() -> void:
 	var center := touch_joystick_center()
-	var radius := 70.0
-	var knob_position := center + joystick_vector * 38.0
+	var control_scale := touch_control_scale()
+	var radius := 70.0 * control_scale
+	var knob_position := center + joystick_vector * 38.0 * control_scale
 	draw_circle(center, radius, Color(0.025, 0.065, 0.095, 0.76))
-	draw_arc(center, radius, 0.0, TAU, 64, Color(0.32, 0.73, 0.78, 0.88), 3.0, true)
+	draw_arc(center, radius, 0.0, TAU, 64, Color(0.32, 0.73, 0.78, 0.88), 3.0 * control_scale, true)
 	for direction in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
-		draw_line(center + direction * 45.0, center + direction * 54.0,
-			Color(0.55, 0.76, 0.79, 0.64), 2.0, true)
-	draw_circle(knob_position, 29.0, Color(0.12, 0.34, 0.4, 0.98))
-	draw_arc(knob_position, 29.0, 0.0, TAU, 48, ACCENT, 2.5, true)
+		draw_line(center + direction * 45.0 * control_scale,
+			center + direction * 54.0 * control_scale,
+			Color(0.55, 0.76, 0.79, 0.64), 2.0 * control_scale, true)
+	draw_circle(knob_position, 29.0 * control_scale, Color(0.12, 0.34, 0.4, 0.98))
+	draw_arc(knob_position, 29.0 * control_scale, 0.0, TAU, 48, ACCENT, 2.5 * control_scale, true)
 
 func draw_play_messages() -> void:
 	var sim = game.sim
@@ -787,10 +848,11 @@ func draw_overlay() -> void:
 		if touch_ui_enabled:
 			if game.auto_mode:
 				lines = ["Auto mode steers and boosts for you.", "Tap RESUME to return to the round.",
+				"Drag the right side to orbit; pinch to zoom.",
 				"On resume, tap VIEW for overview controls.", "GAME OPTIONS keeps the round settings."]
 			else:
-				lines = ["Tap the direction pad to steer.", "Hold BOOST; release to recharge.",
-					"On resume, tap VIEW for overview controls.",
+				lines = ["Drag the lower-left side to steer.", "Hold BOOST; release to recharge.",
+					"Drag right to orbit; pinch to zoom.", "On resume, tap VIEW for overview controls.",
 					"Tap RESUME to return to the round.", "GAME OPTIONS keeps the round settings."]
 		elif game.auto_mode:
 			lines = ["Every pipe steers and boosts automatically.", "Overview: V display / Tab select",
@@ -901,7 +963,8 @@ func draw_title_mode_controls(rect: Rect2, offset_y: float) -> void:
 func draw_options_page(rect: Rect2) -> void:
 	centered("ROUND OPTIONS", rect.position.y + 64, 31)
 	centered("ROUND AND PLAYER SETTINGS", rect.position.y + 94, 14, ACCENT)
-	centered("Set up your pipe; swipe or scroll for camera settings.", rect.position.y + 130, 16, MUTED)
+	centered("Choose a pipe color and pattern; swipe or scroll for camera settings.",
+		rect.position.y + 130, 16, MUTED)
 	var name_label_y := 123.0 if not touch_ui_enabled else 135.0
 	var name_field_y := 135.0 if not touch_ui_enabled else 147.0
 	var color_label_y := 207.0 if not touch_ui_enabled else 230.0

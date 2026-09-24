@@ -40,6 +40,8 @@ func _ready() -> void:
 		var material := Appearance.material(Color.WHITE, 0, PI * 0.5 if elbow else 2.0)
 		mesh.material_override = material
 		mesh.transform = Transform3D(Geometry.orientation(incoming[i], outgoing[i]), cells[i])
+		material.set_shader_parameter("rainbow_phase",
+			Appearance.rainbow_phase(incoming[i], outgoing[i], Vector3i.UP))
 		materials.append(material)
 		path.add_child(mesh)
 	var camera := Camera3D.new()

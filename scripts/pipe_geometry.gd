@@ -13,14 +13,18 @@ static func tangent(elbow: bool, t: float) -> Vector3:
 		return Vector3(sin(t * PI * 0.5), 0.0, -cos(t * PI * 0.5))
 	return Vector3.FORWARD
 
-static func orientation(incoming: Vector3i, outgoing: Vector3i) -> Basis:
+static func orientation(incoming: Vector3i, outgoing: Vector3i,
+		up_direction: Vector3i = Vector3i.UP) -> Basis:
 	var z_axis := -Vector3(incoming)
 	var x_axis: Vector3
 	if incoming != outgoing:
 		x_axis = Vector3(outgoing)
 	else:
-		var up := Vector3.UP if absf(z_axis.y) < 0.9 else Vector3.BACK
-		x_axis = up.cross(z_axis).normalized()
+		var up_axis := Vector3(up_direction)
+		up_axis -= z_axis * up_axis.dot(z_axis)
+		if up_axis.length_squared() < 0.0001:
+			up_axis = Vector3.UP if absf(z_axis.y) < 0.9 else Vector3.BACK
+		x_axis = up_axis.normalized().cross(z_axis).normalized()
 	return Basis(x_axis, z_axis.cross(x_axis), z_axis)
 
 static func make_tube(elbow: bool) -> ArrayMesh:

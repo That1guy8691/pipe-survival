@@ -38,11 +38,14 @@ func ensure_count(total: int) -> void:
 			var batch := MultiMeshInstance3D.new()
 			batch.multimesh = MultiMesh.new()
 			batch.multimesh.transform_format = MultiMesh.TRANSFORM_3D
+			batch.multimesh.use_custom_data = true
 			batch.multimesh.mesh = meshes[kind]
 			batch.multimesh.instance_count = 256
 			batch.multimesh.visible_instance_count = 0
-			batch.material_override = Appearance.material(pipe_color, player_pattern if i == 0 else 0,
+			var batch_material := Appearance.material(pipe_color, player_pattern if i == 0 else 0,
 				2.0 if kind == 0 else PI * 0.5)
+			batch_material.set_shader_parameter("use_instance_phase", true)
+			batch.material_override = batch_material
 			add_child(batch)
 			per_rider.append(batch)
 		batches.append(per_rider)
@@ -93,9 +96,9 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 		plans.append({})
 		var rider: Dictionary = model.riders[i]
 		var pipe_color: Color = model.rider_color(i)
-		# Pick once per round; respawns reuse these materials and their pattern.
+		# Pick once per round; respawns reuse each rider's pattern.
 		var pattern := player_pattern if i == 0 else pattern_rng.randi_range(
-			Appearance.Pattern.SOLID, Appearance.Pattern.SPOTS)
+			Appearance.Pattern.SOLID, Appearance.Pattern.RINGS)
 		for batch: MultiMeshInstance3D in batches[i]:
 			Appearance.apply(batch.material_override, pipe_color, pattern)
 		inlet_materials[i].albedo_color = pipe_color
@@ -162,16 +165,19 @@ func begin_step(riders: Array[Dictionary], directions: Array[Vector3i]) -> void:
 
 func begin_rider(i: int, rider: Dictionary, outgoing: Vector3i) -> void:
 	var elbow: bool = outgoing != rider.forward
-	var basis := Geometry.orientation(rider.forward, outgoing)
+	var basis := Geometry.orientation(rider.forward, outgoing, rider.up)
 	var origin: Vector3 = model.world(rider.cell)
+	var rainbow_phase := Appearance.rainbow_phase(rider.forward, outgoing, rider.up)
 	plans[i] = {"basis": basis, "origin": origin, "elbow": elbow,
-		"incoming": rider.forward, "outgoing": outgoing, "up": rider.up}
+		"incoming": rider.forward, "outgoing": outgoing, "up": rider.up,
+		"rainbow_phase": rainbow_phase}
 	active[i].visible = rider.alive
 	if not rider.alive:
 		return
 	active[i].mesh = meshes[1 if elbow else 0]
 	active[i].transform = Transform3D(basis, origin)
 	active_materials[i].set_shader_parameter("segment_length", PI * 0.5 if elbow else 2.0)
+	active_materials[i].set_shader_parameter("rainbow_phase", rainbow_phase)
 	active_materials[i].set_shader_parameter("fill", 0.0)
 
 func pose(index: int, progress: float) -> Dictionary:
@@ -206,8 +212,11 @@ func commit(moves: Array[Dictionary]) -> void:
 		var count: int = counts[i][kind]
 		if count >= batch.multimesh.instance_count:
 			grow_buffer(batch.multimesh, count)
+		var segment_up: Vector3i = move.get("up", Vector3i.UP)
 		batch.multimesh.set_instance_transform(count, Transform3D(
-			Geometry.orientation(move.incoming, move.outgoing), model.world(move.cell)))
+			Geometry.orientation(move.incoming, move.outgoing, segment_up), model.world(move.cell)))
+		batch.multimesh.set_instance_custom_data(count,
+			Color(float(plans[i].get("rainbow_phase", 0.0)), 0.0, 0.0, 1.0))
 		counts[i][kind] += 1
 		batch.multimesh.visible_instance_count = counts[i][kind]
 		active[i].visible = false
@@ -242,8 +251,11 @@ func restore_rider(index: int, rider: Dictionary) -> void:
 
 func grow_buffer(buffer: MultiMesh, count: int) -> void:
 	var saved: Array[Transform3D] = []
+	var saved_custom_data: Array[Color] = []
 	for i in range(count):
 		saved.append(buffer.get_instance_transform(i))
+		saved_custom_data.append(buffer.get_instance_custom_data(i))
 	buffer.instance_count = count * 2
 	for i in range(count):
 		buffer.set_instance_transform(i, saved[i])
+		buffer.set_instance_custom_data(i, saved_custom_data[i])

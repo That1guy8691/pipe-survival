@@ -7,12 +7,13 @@ Choose 7, 15, 23, or 31 bots on the title screen; the default is 15.
 Choose a 40, 60, 80, or 100-unit cube with the Arena Size dropdown; the default is 60.
 Adjust the camera's base field of view from 60° to 110° in Game Options.
 Both dropdowns and the Start, Resume, and Back to Title buttons support mouse clicks.
-Game Options also lets you choose Solid, Stripes, or Spots for your pipe beside the
-color picker. The live 3D preview shows your color and pattern on straight sections
-and a curved elbow. Patterns keep the collars plain and stay with your pipe across
-rounds and Endless respawns. Bots randomly choose Solid, Stripes, or Spots each round
-and retain that pattern when they respawn. Like your name and color, your selection
-lasts for the current game session.
+Game Options lets you choose Solid, Stripes, Spots, Rainbow, Helix, Checker, Crosshatch, or Rings
+beside the color picker. The live 3D preview shows your color and pattern on straight sections
+and a curved elbow. Patterns stay with your pipe across rounds and Endless respawns.
+Solid, Stripes, Spots, Helix, Checker, Crosshatch, and Rings keep the collars plain; Rainbow
+carries smooth longitudinal bands continuously around turns and collars. Bots randomly choose
+among all eight patterns each round and retain their pattern when they respawn. Your selection lasts
+for the current game session.
 Pipes grow from colored, bolted wall inlets distributed across all six faces.
 Pickups and bot paths use the outer lanes as well as the center of the cube.
 Turn on Auto Mode to watch every pipe steer and boost itself. Completed rounds

@@ -8,6 +8,7 @@ const SPEED := 6.0
 const STEP_TIME := SPACING / SPEED
 const DEFAULT_BOTS := 15
 const MAX_BOTS := 31
+enum BotPersonality { COLLECTOR, BLOCKER, SURVIVOR }
 const Scoring = preload("res://scripts/scoring.gd")
 const COLORS := [Color("56eddf"), Color("ffb65a"), Color("aa8cff"),
 	Color("ff6e91"), Color("82df8b"), Color("62b4ff"), Color("eddf72"), Color("eaa4ec")]
@@ -34,6 +35,7 @@ var bot_name_bag: Array[String] = []
 var recent_bot_names: Array[String] = []
 var occupied: Dictionary = {}
 var rng := RandomNumberGenerator.new()
+var personality_rng := RandomNumberGenerator.new()
 var ticks := 0
 var finished := false
 var winner := -1
@@ -53,8 +55,10 @@ func reset(seed_value: int = 0, bot_count: int = DEFAULT_BOTS, width: int = 60,
 	player_color = new_player_color
 	if seed_value == 0:
 		rng.randomize()
+		personality_rng.randomize()
 	else:
 		rng.seed = seed_value
+		personality_rng.seed = seed_value + 0x51F15E
 	riders.clear()
 	occupied.clear()
 	ticks = 0
@@ -67,9 +71,13 @@ func reset(seed_value: int = 0, bot_count: int = DEFAULT_BOTS, width: int = 60,
 		var cell := spawns[i]
 		var forward := inlet_direction(cell)
 		var up := Vector3i.BACK if forward.y != 0 else Vector3i.UP
+		var bot_personality := -1
+		if i > 0:
+			bot_personality = personality_rng.randi_range(BotPersonality.COLLECTOR, BotPersonality.SURVIVOR)
 		riders.append({"cell": cell, "forward": forward, "up": up,
 			"source_cell": cell, "source_forward": forward,
 			"alive": true, "length": 0, "death_tick": -1, "cause": "",
+			"bot_personality": bot_personality,
 			"score": 0, "survival_time": 0.0, "orb_count": 0, "eliminations": 0,
 			"combo_count": 0, "combo_multiplier": 1.0, "combo_time": 0.0, "near_miss_active": false,
 			"pressure": 1.0, "boosting": false, "boost_locked": false,
@@ -262,6 +270,23 @@ func bot_direction(index: int) -> Vector3i:
 	var best: Vector3i = rider.forward
 	var best_score := -INF
 	var target_orb := scoring.best_target(rider.cell)
+	var bot_personality := int(rider.get("bot_personality", -1))
+	var space_weight := 0.12
+	var blocked_exit_penalty := 0.7
+	var orb_direction_weight := 2.2
+	var orb_pickup_weight := 5.0
+	var rival_pressure_weight := 0.0
+	match bot_personality:
+		BotPersonality.COLLECTOR:
+			orb_direction_weight = 2.55
+			orb_pickup_weight = 5.7
+		BotPersonality.BLOCKER:
+			rival_pressure_weight = 0.45
+		BotPersonality.SURVIVOR:
+			space_weight = 0.145
+			blocked_exit_penalty = 0.82
+			orb_direction_weight = 1.95
+			orb_pickup_weight = 4.5
 	for direction: Vector3i in legal_directions(rider):
 		var target: Vector3i = rider.cell + direction
 		if not is_open(target):
@@ -277,21 +302,27 @@ func bot_direction(index: int) -> Vector3i:
 				blocked_exits += 1
 		# Limited flood lookahead avoids easy dead ends without a perfect map solver.
 		# Penalize nearby pipes, not the safe outer lanes beside an arena wall.
-		var score := reachable_space(target, 28) * 0.12 - blocked_exits * 0.7 + runway * 0.5
+		var score := reachable_space(target, 28) * space_weight - blocked_exits * blocked_exit_penalty + runway * 0.5
 		score += rng.randf_range(0.0, 2.3)
 		if direction == rider.forward:
 			score += 1.8
 		var toward_orb := Vector3(target_orb - rider.cell)
 		if toward_orb.length_squared() > 0.0:
-			score += Vector3(direction).dot(toward_orb.normalized()) * 2.2
+			score += Vector3(direction).dot(toward_orb.normalized()) * orb_direction_weight
 		if scoring.orbs.has(target):
 			var reward_weight := sqrt(float(scoring.orbs[target]) / float(Scoring.ORB_POINTS))
-			score += 5.0 * reward_weight
+			score += orb_pickup_weight * reward_weight
 		for other_index in range(riders.size()):
 			var other: Dictionary = riders[other_index]
 			if other_index != index and other.alive:
 				if target == other.cell + other.forward:
 					score -= 7.0
+				elif rival_pressure_weight > 0.0:
+					var projected_rival_cell: Vector3i = other.cell + other.forward * 2
+					var current_distance := Vector3(rider.cell - projected_rival_cell).length()
+					if current_distance <= 8.0:
+						var target_distance := Vector3(target - projected_rival_cell).length()
+						score += minf(maxf(current_distance - target_distance, 0.0), 1.0) * rival_pressure_weight
 		if score > best_score:
 			best_score = score
 			best = direction

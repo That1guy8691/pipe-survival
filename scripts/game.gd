@@ -74,6 +74,8 @@ func _ready() -> void:
 	hud.touch_overview_style_requested.connect(cycle_overview_style)
 	hud.touch_overview_focus_requested.connect(func(): cycle_overview_focus(1))
 	hud.touch_pause_requested.connect(toggle_pause)
+	hud.touch_camera_orbit_requested.connect(orbit_camera_from_touch)
+	hud.touch_camera_zoom_requested.connect(zoom_camera_from_touch)
 	motion.completed.connect(on_completed)
 	motion.planned.connect(on_planned)
 	get_window().focus_exited.connect(func():
@@ -417,6 +419,17 @@ func set_touch_boost(held: bool) -> void:
 	boost_held = held and state == "playing" and not auto_mode and sim.riders[0].alive
 	if not held:
 		sim.riders[0].boost_locked = false
+
+func orbit_camera_from_touch(relative: Vector2) -> void:
+	camera.orbit(relative)
+	orbit_idle = 4.0
+
+func zoom_camera_from_touch(distance_change: float) -> void:
+	var zoom_amount := distance_change * 0.04
+	if camera.overview:
+		camera.zoom(-zoom_amount)
+	else:
+		camera.set_base_fov(camera.base_fov - zoom_amount)
 
 func swap_camera_view() -> void:
 	camera.toggle()

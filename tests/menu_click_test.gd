@@ -134,7 +134,7 @@ func run() -> void:
 	await capture("menu-options.png")
 	check(game.hud.pattern_selector.visible and game.hud.pipe_preview.visible,
 		"Game Options shows the pipe pattern selector and live preview")
-	for pattern in [1, 2, 0, 2]:
+	for pattern in [1, 2, 3, 0, 2]:
 		await choose(game.hud.pattern_selector, pattern)
 		check(game.player_pattern == pattern and game.hud.pipe_preview.current_pattern == pattern,
 			"Mouse selects pattern %d and updates the live preview" % pattern)

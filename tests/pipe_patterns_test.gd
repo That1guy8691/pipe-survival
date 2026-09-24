@@ -1,6 +1,9 @@
 extends SceneTree
 ## Appearance survives the growing-to-batched handoff, round reset, and Endless respawn.
 
+const Appearance = preload("res://scripts/pipe_appearance.gd")
+const Geometry = preload("res://scripts/pipe_geometry.gd")
+const Rules = preload("res://scripts/simulation.gd")
 var failures := 0
 var checks := 0
 var directory := ""
@@ -23,6 +26,44 @@ func capture(filename: String) -> void:
 	await RenderingServer.frame_post_draw
 	root.get_texture().get_image().save_png(directory.path_join(filename))
 
+func check_turn_phase_continuity() -> void:
+	var directions: Array[Vector3i] = [Vector3i.RIGHT, Vector3i.LEFT, Vector3i.UP,
+		Vector3i.DOWN, Vector3i.FORWARD, Vector3i.BACK]
+	for incoming in directions:
+		for up in directions:
+			if Vector3(incoming).dot(Vector3(up)) != 0.0:
+				continue
+			var rider := {"forward": incoming, "up": up}
+			for outgoing in directions:
+				if outgoing == incoming or outgoing == -incoming:
+					continue
+				var next_up: Vector3i = Rules.next_up(rider, outgoing)
+				var entry_phase := Appearance.rainbow_phase(incoming, outgoing, up)
+				var elbow_basis := Geometry.orientation(incoming, outgoing)
+				var exit_angle := atan2(Vector3(next_up).dot(elbow_basis.z),
+					Vector3(next_up).dot(elbow_basis.y))
+				var exit_phase := fposmod(-exit_angle / TAU, 1.0)
+				check(absf(wrapf(entry_phase - exit_phase, -0.5, 0.5)) < 0.0001,
+					"Rainbow hue orientation stays continuous through %s to %s" % [incoming, outgoing])
+
+func check_instance_phase_survives_growth(game) -> void:
+	var buffer := MultiMesh.new()
+	buffer.transform_format = MultiMesh.TRANSFORM_3D
+	buffer.use_custom_data = true
+	buffer.mesh = SphereMesh.new()
+	buffer.instance_count = 4
+	var expected_transform := Transform3D(Basis.IDENTITY, Vector3(2, 3, 4))
+	var expected_phase := Color(0.375, 0.0, 0.0, 1.0)
+	buffer.set_instance_transform(0, expected_transform)
+	buffer.set_instance_custom_data(0, expected_phase)
+	var phase_before: Color = buffer.get_instance_custom_data(0)
+	var transform_before: Transform3D = buffer.get_instance_transform(0)
+	game.pipes.grow_buffer(buffer, 1)
+	check(buffer.get_instance_custom_data(0) == phase_before
+		and buffer.get_instance_transform(0) == transform_before
+		and buffer.instance_count == 2,
+		"Rainbow phase remains attached to elbows when trail buffers grow")
+
 func run() -> void:
 	var game = load("res://main.tscn").instantiate()
 	game.automated = true
@@ -35,7 +76,7 @@ func run() -> void:
 	game.player_color = Color("56eddf")
 	for endless in [false, true]:
 		game.endless_mode = endless
-		for pattern in range(3):
+		for pattern in range(Appearance.Pattern.size()):
 			game.player_pattern = pattern
 			game.start_round(812)
 			game.state = "playing"
@@ -55,7 +96,7 @@ func run() -> void:
 				check(batch.material_override.get_shader_parameter("pipe_color") == game.player_color,
 					"Reset must preserve the selected base color")
 			var bot_pattern: int = game.pipes.active_materials[1].get_shader_parameter("pattern")
-			check(bot_pattern in range(3), "Bots must use a supported random pattern")
+			check(bot_pattern in range(Appearance.Pattern.size()), "Bots must use a supported random pattern")
 			for batch in game.pipes.batches[1]:
 				check(batch.material_override.get_shader_parameter("pattern") == bot_pattern,
 					"Bot growing and completed sections must share their random pattern")
@@ -68,6 +109,9 @@ func run() -> void:
 				rider.forward = move.incoming
 				game.pipes.begin_rider(0, rider, move.outgoing)
 				game.pipes.animate_rider(0, 1.0)
+				var expected_phase := Appearance.rainbow_phase(move.incoming, move.outgoing, rider.up)
+				check(is_equal_approx(active.get_shader_parameter("rainbow_phase"), expected_phase),
+					"Growing pipe aligns its rainbow phase through straight and elbow turns")
 				var kind := 0 if move.incoming == move.outgoing else 1
 				var finished: ShaderMaterial = game.pipes.batches[0][kind].material_override
 				for uniform in ["pattern", "pipe_color", "accent_color", "segment_length", "fill"]:
@@ -75,6 +119,10 @@ func run() -> void:
 						"Growing and completed sections must agree on %s" % uniform)
 				var segment: Array[Dictionary] = [move]
 				game.pipes.commit(segment)
+				var instance_index: int = game.pipes.counts[0][kind] - 1
+				var phase: float = game.pipes.batches[0][kind].multimesh.get_instance_custom_data(instance_index).r
+				check(is_equal_approx(phase, expected_phase),
+					"Completed sections retain their rainbow phase at straight and elbow joints")
 			check(game.pipes.counts[0] == [1, 1], "The straight and elbow both reach the trail")
 			rider.cell = Vector3i(11, 10, 10)
 			rider.forward = Vector3i.RIGHT
@@ -101,6 +149,8 @@ func run() -> void:
 					"Endless restart restores the growing pipe")
 				check(active.get_shader_parameter("pattern") == pattern,
 					"Endless restart retains the selected pattern")
+	check_turn_phase_continuity()
+	check_instance_phase_survives_growth(game)
 	check_bot_patterns(game)
 	print("PIPE PATTERNS: %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)
@@ -127,5 +177,5 @@ func check_bot_patterns(game) -> void:
 		check(game.sim.riders[i].alive, "Bot %d must respawn" % i)
 		check(material.get_shader_parameter("pattern") == pattern,
 			"Bot %d must keep its random pattern after respawning" % i)
-	check(seen.has(0) and seen.has(1) and seen.has(2),
-		"Seeded bot selection must include Solid, Stripes, and Spots")
+	for pattern in range(Appearance.Pattern.size()):
+		check(seen.has(pattern), "Seeded bot selection must include %s" % Appearance.NAMES[pattern])
