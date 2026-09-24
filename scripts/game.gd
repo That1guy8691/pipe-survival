@@ -7,6 +7,7 @@ const Arena = preload("res://scripts/arena.gd")
 const CameraRig = preload("res://scripts/camera_rig.gd")
 const Hud = preload("res://scripts/hud.gd")
 const OrbRenderer = preload("res://scripts/orb_renderer.gd")
+const MultiplayerClient = preload("res://scripts/multiplayer_client.gd")
 const AUTO_PLAYER_RESPAWN_DELAY := 2.5
 const BOT_RESPAWN_MIN_DELAY := 4.0
 const BOT_RESPAWN_MAX_DELAY := 12.0
@@ -57,6 +58,16 @@ var crash_position := Vector3.ZERO
 var collision_feedback_time := 0.0
 var collision_position := Vector3.ZERO
 var collision_feedback_label := ""
+var online_client := MultiplayerClient.new()
+var online_connected := false
+var online_status := "OFFLINE"
+var online_server_url := str(ProjectSettings.get_setting("application/config/multiplayer_server_url",
+	"ws://127.0.0.1:8787"))
+var online_room_id := "PUBLIC"
+var online_player_slot := -1
+var online_last_state: Dictionary = {}
+var online_mode := false
+var online_progress := 0.0
 
 func _ready() -> void:
 	respawn_rng.randomize()
@@ -67,6 +78,13 @@ func _ready() -> void:
 	add_child(pipes)
 	add_child(orbs)
 	add_child(camera)
+	add_child(online_client)
+	online_client.connected_to_room.connect(_on_online_welcome)
+	online_client.state_received.connect(_on_online_state)
+	online_client.room_event.connect(_on_online_event)
+	online_client.connection_rejected.connect(_on_online_rejected)
+	online_client.connection_failed.connect(_on_online_connection_failed)
+	online_client.disconnected.connect(_on_online_disconnected)
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	layer.add_child(hud)
@@ -97,6 +115,8 @@ func _ready() -> void:
 		add_child(driver)
 
 func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
+	online_mode = false
+	pipes.player_id = 0
 	title_preview_steps_left = 0
 	crash_view_time = 0.0
 	collision_feedback_time = 0.0
@@ -160,6 +180,8 @@ func start_round(seed_value: int = 0) -> void:
 	camera.overview = auto_mode
 
 func set_auto_mode(enabled: bool) -> void:
+	if online_mode and enabled:
+		return
 	var was_auto := auto_mode
 	auto_mode = enabled
 	motion.autoplay = enabled
@@ -167,18 +189,18 @@ func set_auto_mode(enabled: bool) -> void:
 	boost_held = false
 	motion.boost_requested = false
 	auto_restart_left = 5.0
-	if endless_mode and state in ["playing", "paused"] and not sim.riders[0].alive:
+	if endless_mode and not online_mode and state in ["playing", "paused"] and not sim.riders[player_rider_id()].alive:
 		if enabled and not player_respawn_pending:
 			player_respawn_pending = true
-			respawn_timers[0] = AUTO_PLAYER_RESPAWN_DELAY
+			respawn_timers[player_rider_id()] = AUTO_PLAYER_RESPAWN_DELAY
 		elif not enabled and was_auto:
 			player_respawn_pending = false
-			respawn_timers[0] = -1.0
+			respawn_timers[player_rider_id()] = -1.0
 	# Keep the current segment intact; the next junction uses the new driver.
-	if not enabled and sim.riders[0].alive:
+	if not enabled and sim.riders[player_rider_id()].alive:
 		watch_id = 0
 		camera.initialized = false
-	overview_focus_id = watch_id if enabled or not sim.riders[0].alive else 0
+	overview_focus_id = watch_id if enabled or not sim.riders[player_rider_id()].alive else player_rider_id()
 	update_pipe_display()
 
 func set_hud_enabled(enabled: bool) -> void:
@@ -209,19 +231,21 @@ func primary_action() -> void:
 		state = paused_from
 	elif state in ["ready", "finished"]:
 		start_round()
-	elif endless_mode and state == "playing" and not sim.riders[0].alive:
+	elif endless_mode and state == "playing" and not sim.riders[player_rider_id()].alive:
 		request_player_restart()
 
 func on_planned(indices: Array[int]) -> void:
 	for i in indices:
 		pipes.begin_rider(i, sim.riders[i], motion.directions[i])
-	if sim.riders[0].alive:
+	if sim.riders[player_rider_id()].alive:
 		update_clearance()
 
 func update_clearance() -> void:
 	clearance = 0
 	for distance in range(1, 11):
-		if not sim.is_open(sim.riders[0].cell + motion.directions[0] * distance):
+		if online_mode:
+			break
+		if not sim.is_open(sim.riders[player_rider_id()].cell + motion.directions[player_rider_id()] * distance):
 			break
 		clearance += 1
 
@@ -230,9 +254,9 @@ func on_completed(moves: Array[Dictionary]) -> void:
 	var player_elimination: Dictionary = {}
 	for move: Dictionary in moves:
 		if move.died:
-			if move.id == 0:
+			if move.id == player_rider_id():
 				player_crash = move
-			elif int(move.get("pipe_owner", -1)) == 0:
+			elif int(move.get("pipe_owner", -1)) == player_rider_id():
 				player_elimination = move
 		if endless_mode and move.died:
 			var dead_id: int = move.id
@@ -246,7 +270,7 @@ func on_completed(moves: Array[Dictionary]) -> void:
 				respawn_timers[dead_id] = roll_bot_respawn_delay()
 		pipes.animate_rider(move.id, 1.0)
 	for award: Dictionary in sim.scoring.last_awards:
-		if award.rider_id != 0:
+		if award.rider_id != player_rider_id():
 			continue
 		var event_text := ""
 		for event_name: String in award.events:
@@ -292,7 +316,7 @@ func collision_world_position(move: Dictionary) -> Vector3:
 	return target_position
 
 func collision_label_for_player_crash(move: Dictionary) -> String:
-	var cause: String = sim.riders[0].cause
+	var cause: String = sim.riders[player_rider_id()].cause
 	if cause == "Head-on collision":
 		return "HEAD-ON COLLISION"
 	if cause == "Another pipe":
@@ -313,10 +337,13 @@ func _process(delta: float) -> void:
 		if countdown <= 0.0:
 			state = "playing"
 	elif state == "playing":
-		motion.boost_requested = boost_held
-		motion.advance(minf(delta, 0.1))
+		if online_mode:
+			online_progress = fmod(online_progress + delta / Rules.STEP_TIME, 1.0)
+		else:
+			motion.boost_requested = boost_held
+			motion.advance(minf(delta, 0.1))
 		score_message_time = maxf(0.0, score_message_time - delta)
-		if endless_mode:
+		if endless_mode and not online_mode:
 			advance_endless_respawns(delta)
 	elif state == "finished" and auto_mode:
 		auto_restart_left = maxf(0.0, auto_restart_left - delta)
@@ -331,7 +358,7 @@ func _process(delta: float) -> void:
 		camera.yaw += delta * 0.055
 	for i in range(sim.riders.size()):
 		if sim.riders[i].alive:
-			pipes.animate_rider(i, motion.progress(i))
+			pipes.animate_rider(i, online_progress if online_mode else motion.progress(i))
 	update_pipe_display()
 	if not pipes.plans.is_empty() and (not endless_mode or sim.riders[watch_id].alive):
 		if crash_view_time > 0.0:
@@ -346,7 +373,7 @@ func _process(delta: float) -> void:
 							watch_id = living[0]
 					camera.initialized = false
 		else:
-			var head_pose := pipes.pose(watch_id, motion.progress(watch_id))
+			var head_pose := pipes.pose(watch_id, online_progress if online_mode else motion.progress(watch_id))
 			camera.boosting = sim.riders[watch_id].boosting and state == "playing"
 			camera.follow(head_pose, delta, state in ["ready", "finished"])
 		for i in range(sim.riders.size()):
@@ -368,8 +395,10 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 		if key == KEY_SHIFT and not auto_mode:
 			boost_held = event.pressed and state == "playing"
+			if online_connected:
+				online_client.send_boost(boost_held, sim.ticks)
 			if not event.pressed:
-				sim.riders[0].boost_locked = false
+				sim.riders[player_rider_id()].boost_locked = false
 		if not event.pressed or event.echo:
 			return
 		if key == KEY_Q and state in ["playing", "countdown", "paused", "finished"]:
@@ -385,7 +414,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif key == KEY_H:
 			set_hud_enabled(not hud_enabled)
 		elif key == KEY_R:
-			if endless_mode and state == "playing" and not sim.riders[0].alive:
+			if online_mode:
+				return
+			if endless_mode and state == "playing" and not sim.riders[player_rider_id()].alive:
 				request_player_restart()
 			else:
 				start_round()
@@ -395,13 +426,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			cycle_overview_style()
 		elif key == KEY_TAB and camera.overview and state != "ready" and crash_view_time <= 0.0:
 			cycle_overview_focus(-1 if event.shift_pressed else 1)
-		elif key == KEY_TAB and (auto_mode or not sim.riders[0].alive):
+		elif key == KEY_TAB and (auto_mode or not sim.riders[player_rider_id()].alive):
 			var alive := sim.alive_ids()
 			if not alive.is_empty():
 				var step := -1 if event.shift_pressed else 1
 				watch_id = alive[(alive.find(watch_id) + step + alive.size()) % alive.size()]
 				camera.initialized = false
-		elif state in ["playing", "countdown"] and sim.riders[0].alive and not auto_mode:
+		elif state in ["playing", "countdown"] and sim.riders[player_rider_id()].alive and not auto_mode:
 			var command := ""
 			match key:
 				KEY_W: command = "up"
@@ -420,15 +451,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			camera.zoom(3.0)
 
 func queue_turn(command: String) -> void:
-	if state not in ["playing", "countdown"] or not sim.riders[0].alive or auto_mode:
+	if state not in ["playing", "countdown"] or not sim.riders[player_rider_id()].alive or auto_mode:
 		return
 	if command in ["up", "down", "left", "right"] and turn_queue.size() < 2:
 		turn_queue.append(command)
+		if online_connected:
+			online_client.send_turn(command, sim.ticks)
 
 func set_touch_boost(held: bool) -> void:
-	boost_held = held and state == "playing" and not auto_mode and sim.riders[0].alive
+	boost_held = held and state == "playing" and not auto_mode and sim.riders[player_rider_id()].alive
+	if online_connected:
+		online_client.send_boost(boost_held, sim.ticks)
 	if not held:
-		sim.riders[0].boost_locked = false
+		sim.riders[player_rider_id()].boost_locked = false
 
 func orbit_camera_from_touch(relative: Vector2) -> void:
 	camera.orbit(relative)
@@ -443,7 +478,7 @@ func zoom_camera_from_touch(distance_change: float) -> void:
 
 func swap_camera_view() -> void:
 	camera.toggle()
-	if camera.overview and (auto_mode or not sim.riders[0].alive):
+	if camera.overview and (auto_mode or not sim.riders[player_rider_id()].alive):
 		overview_focus_id = watch_id
 	update_pipe_display()
 	fov_message = camera.view_name()
@@ -470,7 +505,7 @@ func cycle_overview_focus(step: int) -> void:
 		index = 0 if step > 0 else alive.size()
 	index = (index + step + alive.size()) % alive.size()
 	overview_focus_id = alive[index]
-	if auto_mode or not sim.riders[0].alive:
+	if auto_mode or not sim.riders[player_rider_id()].alive:
 		watch_id = overview_focus_id
 		camera.initialized = false
 	overview_style = PipeRenderer.OverviewStyle.HIGHLIGHT
@@ -493,8 +528,94 @@ func set_endless_mode(enabled: bool) -> void:
 	endless_mode = enabled
 	hud.queue_redraw()
 
+func connect_online(server_url: String, room_id: String) -> void:
+	var normalized_url := server_url.strip_edges()
+	if normalized_url.is_empty():
+		normalized_url = online_server_url
+	var normalized_room := room_id.strip_edges().to_upper()
+	if normalized_room.is_empty():
+		normalized_room = "PUBLIC"
+	online_server_url = normalized_url
+	online_room_id = normalized_room
+	online_status = "CONNECTING"
+	online_connected = false
+	online_mode = false
+	online_player_slot = -1
+	online_last_state.clear()
+	hud.queue_redraw()
+	var error := online_client.connect_to_room(normalized_url, normalized_room, player_name, player_color)
+	if error != OK:
+		online_status = "CONNECT ERROR %d" % error
+		hud.queue_redraw()
+
+func disconnect_online() -> void:
+	online_client.leave("left")
+	online_client.close()
+	online_connected = false
+	online_mode = false
+	online_player_slot = -1
+	online_status = "OFFLINE"
+	online_last_state.clear()
+	hud.queue_redraw()
+
+func _on_online_welcome(message: Dictionary) -> void:
+	online_connected = true
+	online_status = "CONNECTED"
+	online_mode = true
+	# Auto Mode is a local solo assist and is never allowed to drive an online slot.
+	auto_mode = false
+	motion.autoplay = false
+	boost_held = false
+	turn_queue.clear()
+	state = "playing"
+	countdown = 0.0
+	camera.overview = true
+	camera.initialized = false
+	online_progress = 0.0
+	var player: Dictionary = message.get("player", {})
+	online_player_slot = int(player.get("slot", -1))
+	var room: Dictionary = message.get("room", {})
+	online_room_id = str(room.get("room_id", online_room_id))
+	endless_mode = str(room.get("mode", "endless")) == "endless"
+	hud.queue_redraw()
+
+func _on_online_state(message: Dictionary) -> void:
+	online_last_state = message
+	_apply_online_state(message)
+	if online_connected:
+		online_status = "SYNCED / TICK %d" % int(message.get("tick", 0))
+	hud.queue_redraw()
+
+func _on_online_event(message: Dictionary) -> void:
+	var event_name := str(message.get("event", "")).to_upper()
+	if online_connected and not event_name.is_empty():
+		online_status = "%s / %d PLAYERS" % [event_name, int(message.get("room", {}).get("human_count", 0))]
+	hud.queue_redraw()
+
+func _on_online_rejected(reason: String) -> void:
+	online_connected = false
+	online_mode = false
+	online_player_slot = -1
+	online_status = "REJECTED / " + reason
+	hud.queue_redraw()
+
+func _on_online_connection_failed(reason: String) -> void:
+	online_connected = false
+	online_mode = false
+	online_status = "CONNECT ERROR / " + reason
+	hud.queue_redraw()
+
+func _on_online_disconnected(reason: String) -> void:
+	if online_status.begins_with("REJECTED /"):
+		return
+	online_connected = false
+	online_mode = false
+	online_player_slot = -1
+	online_status = "DISCONNECTED" if reason.is_empty() else "DISCONNECTED / " + reason
+	hud.queue_redraw()
+
 func request_player_restart() -> void:
-	if state != "playing" or sim.riders[0].alive:
+	if online_mode or state != "playing" or sim.riders[player_rider_id()].alive:
 		return
 	if not endless_mode:
 		start_round()
@@ -502,6 +623,103 @@ func request_player_restart() -> void:
 	player_respawn_pending = true
 	respawn_timers[0] = 0.0
 	advance_endless_respawns(0.0)
+
+func player_rider_id() -> int:
+	if online_mode and online_player_slot >= 0 and online_player_slot < sim.riders.size():
+		return online_player_slot
+	return 0
+
+func _vector_from_wire(value, fallback: Vector3i = Vector3i.ZERO) -> Vector3i:
+	if value is Array and value.size() >= 3:
+		return Vector3i(int(value[0]), int(value[1]), int(value[2]))
+	return fallback
+
+func _wire_rider(wire: Dictionary, current: Dictionary = {}) -> Dictionary:
+	var rider := current.duplicate()
+	rider.cell = _vector_from_wire(wire.get("cell"), rider.get("cell", Vector3i.ZERO))
+	rider.forward = _vector_from_wire(wire.get("forward"), rider.get("forward", Vector3i.FORWARD))
+	rider.up = _vector_from_wire(wire.get("up"), rider.get("up", Vector3i.UP))
+	rider.source_cell = _vector_from_wire(wire.get("source_cell"), rider.cell)
+	rider.source_forward = _vector_from_wire(wire.get("source_forward"), rider.forward)
+	for key in ["alive", "length", "score", "pressure", "boosting", "cause", "orb_count",
+			"eliminations", "combo_count", "combo_multiplier", "combo_time", "name"]:
+		if wire.has(key):
+			rider[key] = wire[key]
+	if wire.has("color"):
+		rider.color = Color.from_string(str(wire.color), rider.get("color", player_color))
+	return rider
+
+func _wire_move(wire: Dictionary) -> Dictionary:
+	return {"id": int(wire.get("id", -1)),
+		"cell": _vector_from_wire(wire.get("cell")),
+		"target": _vector_from_wire(wire.get("target")),
+		"incoming": _vector_from_wire(wire.get("incoming"), Vector3i.FORWARD),
+		"outgoing": _vector_from_wire(wire.get("outgoing"), Vector3i.FORWARD),
+		"up": _vector_from_wire(wire.get("up"), Vector3i.UP),
+		"died": bool(wire.get("died", false)),
+		"pipe_owner": int(wire.get("pipe_owner", -1))}
+
+func _apply_online_state(message: Dictionary) -> void:
+	if not online_mode:
+		return
+	var wires: Array = message.get("riders", [])
+	if wires.is_empty():
+		return
+	var full := bool(message.get("full_snapshot", false))
+	if full or sim.riders.size() != wires.size():
+		sim.endless_mode = endless_mode
+		sim.reset(int(str(message.get("tick", 0))) + 1701, maxi(wires.size() - 1, 1), 60,
+			player_name, player_color)
+		pipes.player_id = online_player_slot
+	for i in range(mini(wires.size(), sim.riders.size())):
+		if wires[i] is Dictionary:
+			sim.riders[i] = _wire_rider(wires[i], sim.riders[i])
+	sim.ticks = int(message.get("tick", sim.ticks))
+	sim.finished = false
+	sim.winner = -1
+	sim.scoring.orbs.clear()
+	for raw_orb in message.get("orbs", []):
+		if raw_orb is Dictionary:
+			sim.scoring.orbs[_vector_from_wire(raw_orb.get("cell"))] = int(raw_orb.get("points", 0))
+	var histories: Array = []
+	if full:
+		sim.occupied.clear()
+		for i in range(wires.size()):
+			var rider_history: Array = []
+			if i < Array(message.get("history", [])).size():
+				for raw_move in Array(message.get("history", [])[i]):
+					var move := _wire_move(raw_move)
+					rider_history.append(move)
+					sim.occupied[move.cell] = i
+					sim.occupied[move.target] = i
+			histories.append(rider_history)
+			if i < sim.riders.size() and sim.riders[i].alive:
+				sim.occupied[sim.riders[i].cell] = i
+		pipes.rebuild_from_history(histories)
+		motion.reset()
+		watch_id = player_rider_id()
+		overview_focus_id = watch_id
+		camera.initialized = false
+	else:
+		var moves: Array[Dictionary] = []
+		for raw_move in message.get("moves", []):
+			var move := _wire_move(raw_move)
+			moves.append(move)
+			if move.id >= 0 and move.id < sim.riders.size():
+				pipes.begin_rider(move.id,
+					{"cell": move.cell, "forward": move.incoming, "up": move.up, "alive": true},
+					move.outgoing)
+				if move.died and sim.endless_mode:
+					pipes.remove_rider(move.id)
+		pipes.commit(moves)
+		for i in range(mini(wires.size(), sim.riders.size())):
+			if sim.riders[i].alive:
+				pipes.begin_rider(i, sim.riders[i], sim.riders[i].forward)
+		online_progress = 0.0
+	if online_connected:
+		online_status = "SYNCED / TICK %d" % sim.ticks
+	orbs.sync(sim.scoring)
+	hud.queue_redraw()
 
 func roll_bot_respawn_delay() -> float:
 	return respawn_rng.randf_range(BOT_RESPAWN_MIN_DELAY, BOT_RESPAWN_MAX_DELAY)

@@ -1,0 +1,8 @@
+.git
+.github
+.godot
+build
+deploy
+*.mp4
+*.mov
+*.mkv

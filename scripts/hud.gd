@@ -27,12 +27,20 @@ var mono := SystemFont.new()
 var primary := Button.new()
 var secondary := Button.new()
 var options_button := Button.new()
+var online_button := Button.new()
 var controls_button := Button.new()
 var options_back := Button.new()
+var online_back := Button.new()
+var online_join := Button.new()
+var online_quick_match := Button.new()
+var online_host_public := Button.new()
+var online_private_join := Button.new()
 var bot_selector := OptionButton.new()
 var size_selector := OptionButton.new()
 var fov_slider := HSlider.new()
 var player_name_entry := LineEdit.new()
+var online_server_entry := LineEdit.new()
+var online_room_entry := LineEdit.new()
 var player_color_picker := ColorPickerButton.new()
 var player_color_label := Label.new()
 var pattern_selector := OptionButton.new()
@@ -51,6 +59,7 @@ var touch_overview_style := Button.new()
 var touch_overview_focus := Button.new()
 var touch_pause := Button.new()
 var options_open := false
+var online_open := false
 var controls_open := false
 var touch_ui_enabled := false
 var overlay_draw_active := false
@@ -81,7 +90,9 @@ func _ready() -> void:
 	options_content.position = Vector2(0, OPTIONS_VIEW_TOP)
 	options_content.size = Vector2(560, OPTIONS_VIEW_HEIGHT)
 	options_content.clip_contents = true
-	for button in [primary, secondary, options_button, controls_button, options_back, auto_toggle, hud_toggle, mode_toggle]:
+	for button in [primary, secondary, options_button, online_button, controls_button, options_back,
+			online_back, online_join, online_quick_match, online_host_public, online_private_join,
+			auto_toggle, hud_toggle, mode_toggle]:
 		menu_canvas.add_child(button)
 		button.focus_mode = Control.FOCUS_NONE
 		button.add_theme_font_override("font", font)
@@ -101,21 +112,49 @@ func _ready() -> void:
 	primary.pressed.connect(func(): primary_clicked.emit())
 	secondary.pressed.connect(func(): secondary_clicked.emit())
 	quick_restart.pressed.connect(func(): quick_restart_clicked.emit())
-	for button in [secondary, options_button, controls_button, options_back]:
+	for button in [secondary, options_button, online_button, controls_button, options_back, online_back]:
 		button.add_theme_color_override("font_color", MUTED)
 		button.add_theme_stylebox_override("normal", box(Color("162536"), 9))
 		button.add_theme_stylebox_override("hover", box(Color("23384d"), 9))
 	options_button.text = "GAME OPTIONS"
 	options_button.pressed.connect(func():
 		options_open = true
+		online_open = false
 		controls_open = false
 		options_scroll_offset = 0.0)
+	online_button.text = "ONLINE"
+	online_button.pressed.connect(func():
+		online_open = true
+		options_open = false
+		controls_open = false)
 	controls_button.text = "CONTROLS + VIEWS"
 	controls_button.pressed.connect(func():
 		controls_open = true
+		online_open = false
 		options_open = false)
 	options_back.text = "DONE"
 	options_back.pressed.connect(close_menu_page)
+	online_back.text = "BACK TO TITLE"
+	online_back.pressed.connect(func(): online_open = false)
+	online_join.text = "CONNECT TO ROOM"
+	online_join.pressed.connect(func():
+		if game.online_connected:
+			game.disconnect_online()
+		else:
+			game.connect_online(online_server_entry.text, online_room_entry.text))
+	online_quick_match.text = "QUICK MATCH"
+	online_quick_match.pressed.connect(func():
+		online_room_entry.text = "PUBLIC"
+		game.connect_online(game.online_server_url, "PUBLIC"))
+	online_host_public.text = "HOST PUBLIC"
+	online_host_public.pressed.connect(func():
+		online_room_entry.text = "PUBLIC"
+		game.connect_online(game.online_server_url, "PUBLIC"))
+	online_private_join.text = "JOIN PRIVATE"
+	online_private_join.pressed.connect(func():
+		if online_room_entry.text.strip_edges().is_empty() or online_room_entry.text.strip_edges().to_upper() == "PUBLIC":
+			online_room_entry.text = make_private_code()
+		game.connect_online(game.online_server_url, online_room_entry.text))
 	auto_toggle.toggle_mode = true
 	auto_toggle.add_theme_color_override("font_color", MUTED)
 	auto_toggle.add_theme_color_override("font_pressed_color", Color("071d23"))
@@ -197,6 +236,26 @@ func _ready() -> void:
 	player_name_entry.add_theme_stylebox_override("focus", box(Color("30485c"), 7))
 	player_name_entry.text = "YOU"
 	player_name_entry.text_changed.connect(func(value: String): game.player_name = clean_player_name(value))
+	menu_canvas.add_child(online_server_entry)
+	online_server_entry.placeholder_text = "WebSocket server URL"
+	online_server_entry.text = "ws://127.0.0.1:8787"
+	online_server_entry.max_length = 160
+	online_server_entry.add_theme_font_override("font", font)
+	online_server_entry.add_theme_font_size_override("font_size", 18)
+	online_server_entry.add_theme_color_override("font_color", INK)
+	online_server_entry.add_theme_color_override("font_placeholder_color", MUTED)
+	online_server_entry.add_theme_stylebox_override("normal", box(Color("23384d"), 7))
+	online_server_entry.add_theme_stylebox_override("focus", box(Color("30485c"), 7))
+	menu_canvas.add_child(online_room_entry)
+	online_room_entry.placeholder_text = "PUBLIC or private room code"
+	online_room_entry.text = "PUBLIC"
+	online_room_entry.max_length = 12
+	online_room_entry.add_theme_font_override("font", font)
+	online_room_entry.add_theme_font_size_override("font_size", 18)
+	online_room_entry.add_theme_color_override("font_color", INK)
+	online_room_entry.add_theme_color_override("font_placeholder_color", MUTED)
+	online_room_entry.add_theme_stylebox_override("normal", box(Color("23384d"), 7))
+	online_room_entry.add_theme_stylebox_override("focus", box(Color("30485c"), 7))
 	options_content.add_child(player_color_picker)
 	player_color_picker.color = PLAYER_COLOR
 	player_color_picker.edit_alpha = false
@@ -346,7 +405,7 @@ func touch_camera_active() -> bool:
 		and game.crash_view_time <= 0.0
 
 func touch_steering_zone(position: Vector2) -> bool:
-	return game != null and not game.auto_mode and game.sim.riders[0].alive \
+	return game != null and not game.auto_mode and game.sim.riders[game.player_rider_id()].alive \
 		and position.x <= size.x * 0.5 and position.y >= size.y * 0.42
 
 func touch_camera_control_at(position: Vector2) -> bool:
@@ -419,7 +478,7 @@ func update_menu_control_scale() -> void:
 	if is_equal_approx(applied_menu_screen_scale, menu_screen_scale):
 		return
 	applied_menu_screen_scale = menu_screen_scale
-	for button in [primary, secondary, options_button, controls_button, options_back]:
+	for button in [primary, secondary, options_button, online_button, controls_button, options_back, online_back, online_join]:
 		button.add_theme_font_size_override("font_size", menu_control_font_size(20))
 	controls_button.add_theme_font_size_override("font_size", menu_control_font_size(17))
 	for button in [auto_toggle, hud_toggle]:
@@ -428,6 +487,8 @@ func update_menu_control_scale() -> void:
 	bot_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	size_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	player_name_entry.add_theme_font_size_override("font_size", menu_control_font_size(18))
+	online_server_entry.add_theme_font_size_override("font_size", menu_control_font_size(18))
+	online_room_entry.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	player_color_label.add_theme_font_size_override("font_size", menu_control_font_size(16))
 	pattern_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	material_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
@@ -466,7 +527,7 @@ func _input(event: InputEvent) -> void:
 		queue_redraw()
 	update_touch_camera_gesture(event)
 	if game != null and touch_ui_enabled and game.state in ["playing", "countdown"] \
-			and not game.auto_mode and game.sim.riders[0].alive:
+			and not game.auto_mode and game.sim.riders[game.player_rider_id()].alive:
 		if event is InputEventScreenTouch:
 			if event.pressed and joystick_touch_index == -1 \
 					and camera_touch_points.is_empty() and touch_steering_zone(event.position):
@@ -565,24 +626,31 @@ func _process(_delta: float) -> void:
 	if game != null:
 		if joystick_pending_direction != "" and joystick_touch_index != -1 \
 				and game.state in ["playing", "countdown"] and not game.auto_mode \
-				and game.sim.riders[0].alive and game.turn_queue.size() < 2:
+				and game.sim.riders[game.player_rider_id()].alive and game.turn_queue.size() < 2:
 			var pending_direction := joystick_pending_direction
 			joystick_pending_direction = ""
 			touch_turn_requested.emit(pending_direction)
 		if game.state != "ready":
 			options_open = false
+			online_open = false
 			controls_open = false
 		options_content.size = Vector2(560, 530.0 if touch_ui_enabled else OPTIONS_VIEW_HEIGHT)
 		fit_menu(overlay_panel_height())
 		options_scroll_offset = clampf(options_scroll_offset, 0.0, options_max_scroll())
-		primary.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and (options_open or controls_open))
+		primary.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and (options_open or online_open or controls_open))
 		secondary.visible = game.state in ["paused", "finished"]
-		options_button.visible = game.state == "ready" and not options_open and not controls_open
-		controls_button.visible = game.state == "ready" and not options_open and not controls_open
+		options_button.visible = game.state == "ready" and not options_open and not online_open and not controls_open
+		online_button.visible = game.state == "ready" and not options_open and not online_open and not controls_open
+		controls_button.visible = game.state == "ready" and not options_open and not online_open and not controls_open
 		options_back.visible = game.state == "ready" and (options_open or controls_open)
-		mode_toggle.visible = game.state == "ready" and not options_open and not controls_open
+		online_back.visible = game.state == "ready" and online_open
+		online_join.visible = game.state == "ready" and online_open
+		online_quick_match.visible = game.state == "ready" and online_open
+		online_host_public.visible = game.state == "ready" and online_open
+		online_private_join.visible = game.state == "ready" and online_open
+		mode_toggle.visible = game.state == "ready" and not options_open and not online_open and not controls_open
 		mode_toggle.set_pressed_no_signal(game.endless_mode)
-		quick_restart.visible = game.state == "playing" and not game.sim.riders[0].alive and (game.endless_mode or touch_ui_enabled)
+		quick_restart.visible = game.state == "playing" and not game.online_mode and not game.sim.riders[game.player_rider_id()].alive and (game.endless_mode or touch_ui_enabled)
 		quick_restart.text = ("RESPAWNING..." if game.auto_mode else "WAITING FOR SPACE") if game.player_respawn_pending else ("RESTART PIPE" if game.endless_mode else "RESTART ROUND")
 		var ui_factor := ui_scale_factor()
 		var available := screen_size()
@@ -591,6 +659,8 @@ func _process(_delta: float) -> void:
 		quick_restart.position = Vector2((available.x - 228.0) / 2.0, (available.y - 44.0) / 2.0 if touch_ui_enabled else available.y - 145.0) * ui_factor
 		quick_restart.size = Vector2(228, 44) * ui_factor
 		options_content.visible = game.state == "ready" and options_open
+		online_server_entry.visible = false
+		online_room_entry.visible = game.state == "ready" and online_open
 		bot_selector.visible = options_content.visible
 		size_selector.visible = options_content.visible
 		fov_slider.visible = options_content.visible
@@ -608,7 +678,7 @@ func _process(_delta: float) -> void:
 		auto_toggle.set_pressed_no_signal(game.auto_mode)
 		hud_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and (options_open or controls_open))
 		hud_toggle.set_pressed_no_signal(game.hud_enabled)
-		var steer_visible: bool = touch_ui_enabled and game.state in ["playing", "countdown"] and not game.auto_mode and game.sim.riders[0].alive
+		var steer_visible: bool = touch_ui_enabled and game.state in ["playing", "countdown"] and not game.auto_mode and game.sim.riders[game.player_rider_id()].alive
 		var touch_active: bool = touch_ui_enabled and game.state in ["playing", "countdown"]
 		var overview_active: bool = touch_active and game.camera.overview and game.crash_view_time <= 0.0
 		if not steer_visible and joystick_touch_index != -1:
@@ -617,7 +687,7 @@ func _process(_delta: float) -> void:
 		touch_boost.position = Vector2(available.x - 172 * touch_scale, available.y - 118 * touch_scale) * ui_factor
 		touch_boost.size = Vector2(152, 96) * touch_scale * ui_factor
 		if not game.sim.riders.is_empty():
-			touch_boost.text = "BOOST\n%d%%" % roundi(game.sim.riders[0].pressure * 100.0)
+			touch_boost.text = "BOOST\n%d%%" % roundi(game.sim.riders[game.player_rider_id()].pressure * 100.0)
 		touch_view.visible = touch_active
 		touch_view.position = Vector2(available.x - 128 * touch_scale, 124 * touch_scale) * ui_factor
 		touch_view.size = Vector2(120, 48) * touch_scale * ui_factor
@@ -651,7 +721,7 @@ func _draw() -> void:
 		touch_draw_active = true
 		if game.hud_enabled:
 			draw_touch_game_hud()
-		if game.state in ["playing", "countdown"] and not game.auto_mode and game.sim.riders[0].alive:
+		if game.state in ["playing", "countdown"] and not game.auto_mode and game.sim.riders[game.player_rider_id()].alive:
 			draw_touch_joystick()
 		draw_collision_feedback()
 		touch_draw_active = false
@@ -669,7 +739,7 @@ func _draw() -> void:
 	label_at("ORB VALUES", Vector2(44, 169), 13, MUTED)
 	draw_orb_legend(Vector2(48, 196), 77.0, 14)
 	panel(Rect2(size.x / 2.0 - 186, 24, 372, 88))
-	var following: bool = game.auto_mode or not sim.riders[0].alive
+	var following: bool = game.auto_mode or not sim.riders[game.player_rider_id()].alive
 	centered("AUTO MODE / FOLLOWING" if game.auto_mode else ("SPECTATING" if following else "YOUR PIPE"), 53, 16, MUTED)
 	centered(game.sim.rider_name(game.watch_id if following else 0), 89, 28, game.sim.rider_color(game.watch_id if following else 0))
 	draw_leaderboard(focus_id)
@@ -768,7 +838,7 @@ func draw_boost(rider: Dictionary) -> void:
 func draw_touch_game_hud() -> void:
 	if not game.hud_enabled:
 		return
-	var rider: Dictionary = game.sim.riders[0]
+	var rider: Dictionary = game.sim.riders[game.player_rider_id()]
 	var bounds := screen_size()
 	var panel_width := minf(236.0, bounds.x - 128.0)
 	panel(Rect2(16, 16, panel_width, 100))
@@ -813,7 +883,7 @@ func draw_play_messages() -> void:
 		draw_circle(center, 2, Color(0.9, 1.0, 1.0, 0.8))
 		for direction in [Vector2.LEFT, Vector2.RIGHT, Vector2.UP, Vector2.DOWN]:
 			draw_line(center + direction * 8, center + direction * 14, Color(0.8, 1.0, 1.0, 0.65), 1.5)
-	if game.state == "playing" and sim.riders[0].alive:
+	if game.state == "playing" and sim.riders[game.player_rider_id()].alive:
 		var queued := " > ".join(game.turn_queue).to_upper()
 		if not queued.is_empty():
 			centered("QUEUED / " + queued, h - 161, 17, ACCENT)
@@ -829,7 +899,7 @@ func draw_play_messages() -> void:
 		centered("V / PIPE VIEW     TAB / SELECT PIPE     RIGHT DRAG / ORBIT", 137, 13, MUTED)
 	if game.fov_message_time > 0.0:
 		centered(game.fov_message, h / 2.0 - 68, 17, ACCENT)
-	if game.state == "playing" and not sim.riders[0].alive and (not game.auto_mode or game.endless_mode):
+	if game.state == "playing" and not sim.riders[game.player_rider_id()].alive and (not game.auto_mode or game.endless_mode):
 		if touch_ui_enabled:
 			var lost_width := minf(456.0, bounds.x - 32.0)
 			panel(Rect2((bounds.x - lost_width) / 2.0, h - 230, lost_width, 76))
@@ -838,12 +908,12 @@ func draw_play_messages() -> void:
 				h - 174, 15, MUTED)
 		elif game.endless_mode:
 			panel(Rect2(size.x / 2 - 228, h - 230, 456, 76))
-			centered("PIPE LOST / " + str(sim.riders[0].cause).to_upper(), h - 201, 20, Color("ffb65a"))
+			centered("PIPE LOST / " + str(sim.riders[game.player_rider_id()].cause).to_upper(), h - 201, 20, Color("ffb65a"))
 			centered("Your pipe returns automatically / session continues" if game.auto_mode
 				else "Press R or click Restart / session continues", h - 174, 17, MUTED)
 		else:
 			panel(Rect2(size.x / 2 - 228, h - 230, 456, 76))
-			centered("PIPE LOST / " + str(sim.riders[0].cause).to_upper(), h - 201, 20, Color("ffb65a"))
+			centered("PIPE LOST / " + str(sim.riders[game.player_rider_id()].cause).to_upper(), h - 201, 20, Color("ffb65a"))
 			centered("R to restart / Tab to follow survivors", h - 174, 17, MUTED)
 	if game.state == "countdown":
 		centered(str(ceili(game.countdown)), h / 2.0 + 25, 88, ACCENT)
@@ -887,6 +957,8 @@ func draw_overlay() -> void:
 	if game.state == "ready":
 		if options_open:
 			draw_options_page(rect)
+		elif online_open:
+			draw_online_page(rect)
 		elif controls_open:
 			draw_controls_page(rect)
 		else:
@@ -922,8 +994,8 @@ func draw_overlay() -> void:
 		subtitle = "NO SURVIVORS" if winner < 0 else game.sim.rider_name(winner) + " IS THE LAST PIPE STANDING"
 		var secs := int(game.sim.elapsed_time)
 		lines = ["Round lasted %d:%02d" % [secs / 60, secs % 60],
-			"Your score: %d" % int(game.sim.riders[0].score),
-			"%d orbs collected / %d eliminations" % [game.sim.riders[0].orb_count, game.sim.riders[0].eliminations]]
+			"Your score: %d" % int(game.sim.riders[game.player_rider_id()].score),
+			"%d orbs collected / %d eliminations" % [game.sim.riders[game.player_rider_id()].orb_count, game.sim.riders[game.player_rider_id()].eliminations]]
 		if game.auto_mode:
 			lines.append("Next round in %d seconds." % ceili(game.auto_restart_left))
 		else:
@@ -983,7 +1055,7 @@ func draw_title_page(rect: Rect2) -> void:
 	var mode_height := menu_target_height(42)
 	draw_title_mode_controls(rect, 270)
 	options_button.visible = true
-	options_button.text = "GAME OPTIONS"
+	options_button.text = "OPTIONS"
 	var options_y := 330.0
 	var primary_y := 389.0
 	var summary_y := 486.0
@@ -992,17 +1064,74 @@ func draw_title_page(rect: Rect2) -> void:
 		primary_y = options_y + menu_target_height(43) + 12.0
 		summary_y = primary_y + menu_target_height(52) + 24.0
 	options_button.position = rect.position + Vector2(38, options_y)
-	options_button.size = Vector2(238, menu_target_height(43))
+	options_button.size = Vector2(156, menu_target_height(43))
+	online_button.visible = true
+	online_button.text = "ONLINE"
+	online_button.position = rect.position + Vector2(202, options_y)
+	online_button.size = Vector2(156, menu_target_height(43))
 	controls_button.visible = true
-	controls_button.text = "CONTROLS" if touch_ui_enabled else "CONTROLS + VIEWS"
-	controls_button.position = rect.position + Vector2(284, options_y)
-	controls_button.size = Vector2(238, menu_target_height(43))
+	controls_button.text = "CONTROLS"
+	controls_button.position = rect.position + Vector2(366, options_y)
+	controls_button.size = Vector2(156, menu_target_height(43))
 	primary.visible = true
 	primary.text = "ENTER  /  WATCH AUTO MODE" if game.auto_mode else "ENTER  /  START ROUND"
 	primary.position = rect.position + Vector2(38, primary_y)
 	primary.size = Vector2(484, menu_target_height(52))
 	var mode_name := "ENDLESS" if game.endless_mode else "SURVIVAL"
 	centered("%s    /    YOU + %d BOTS    /    %dM CUBE" % [mode_name, game.bot_count, game.arena_width], rect.position.y + summary_y, 14, MUTED)
+
+func draw_online_page(rect: Rect2) -> void:
+	primary.visible = false
+	secondary.visible = false
+	options_button.visible = false
+	online_button.visible = false
+	controls_button.visible = false
+	options_back.visible = false
+	mode_toggle.visible = false
+	auto_toggle.visible = false
+	hud_toggle.visible = false
+	centered("ONLINE ROOMS", rect.position.y + 65, 31)
+	centered("PUBLIC QUEUE OR A PRIVATE JOIN CODE", rect.position.y + 94, 14, ACCENT)
+	centered("Pick a room in one click. Share a private code when you want friends only.",
+		rect.position.y + 126, 15, MUTED)
+	label_at("PRIVATE CODE (OPTIONAL)", rect.position + Vector2(38, 164), 15, ACCENT)
+	online_room_entry.position = rect.position + Vector2(38, 177)
+	online_room_entry.size = Vector2(484, menu_target_height(46))
+	online_quick_match.visible = true
+	online_quick_match.position = rect.position + Vector2(38, 242)
+	online_quick_match.size = Vector2(232, menu_target_height(44))
+	online_host_public.visible = true
+	online_host_public.position = rect.position + Vector2(290, 242)
+	online_host_public.size = Vector2(232, menu_target_height(44))
+	online_private_join.visible = true
+	online_private_join.position = rect.position + Vector2(38, 298)
+	online_private_join.size = Vector2(232, menu_target_height(44))
+	centered("Quick Match finds the shared room. Host Public opens it for anyone to join.",
+		rect.position.y + 366, 14, MUTED)
+	var room: Dictionary = game.online_last_state.get("room", {})
+	var member_count := int(room.get("human_count", 0))
+	var actor_count := int(room.get("actor_target", 32))
+	centered("STATUS  /  %s" % game.online_status, rect.position.y + 400, 17,
+		ACCENT if game.online_connected else MUTED)
+	centered("ROOM  /  %s    PLAYERS  /  %d    ACTORS  /  %d" % [game.online_room_id, member_count, actor_count],
+		rect.position.y + 426, 14, MUTED)
+	online_join.visible = true
+	online_join.text = "DISCONNECT" if game.online_connected else "CONNECT TO ROOM"
+	online_join.position = rect.position + Vector2(38, 455)
+	online_join.size = Vector2(232, menu_target_height(44))
+	online_back.visible = true
+	online_back.position = rect.position + Vector2(286, 455)
+	online_back.size = Vector2(236, menu_target_height(44))
+	online_server_entry.visible = false
+
+func make_private_code() -> String:
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	var alphabet := "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	var code := ""
+	for _i in range(6):
+		code += alphabet[rng.randi_range(0, alphabet.length() - 1)]
+	return code
 
 func draw_controls_page(rect: Rect2) -> void:
 	centered("CONTROLS + VIEWS", rect.position.y + 65, 31)

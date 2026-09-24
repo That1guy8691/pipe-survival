@@ -32,6 +32,17 @@ func _initialize() -> void:
 	var sim = Rules.new()
 	sim.reset(1, 7)
 	check(sim.riders.size() == 8 and sim.occupied.size() == 8, "Eight unique spawn cells")
+	var first_start: Vector3i = sim.riders[0].source_cell
+	sim.reset(1, 7)
+	check(sim.riders[0].source_cell == first_start, "A seed reproduces the same random start")
+	var start_changed := false
+	for seed_value in range(2, 12):
+		sim.reset(seed_value, 7)
+		if sim.riders[0].source_cell != first_start:
+			start_changed = true
+		check(sim.inlet_direction(sim.riders[0].source_cell) != Vector3i.ZERO,
+			"Every random start is a wall inlet")
+	check(start_changed, "Different round seeds can choose a different player start")
 	var player_color := Color("f05f7f")
 	sim.reset(31, 31, 100, "Copper", player_color)
 	check(sim.rider_name(0) == "Copper" and sim.rider_color(0) == player_color,

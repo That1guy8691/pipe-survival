@@ -8,6 +8,7 @@ enum OverviewStyle { NORMAL, HIGHLIGHT, ENDS }
 var player_pattern := Appearance.Pattern.SOLID
 var player_material := Appearance.Finish.ALLOY
 var player_joint_style := Appearance.JointStyle.COLLARED
+var player_id := 0
 var pattern_rng := RandomNumberGenerator.new()
 var model
 var meshes: Array[ArrayMesh] = []
@@ -44,10 +45,10 @@ func ensure_count(total: int) -> void:
 			batch.multimesh.mesh = meshes[kind]
 			batch.multimesh.instance_count = 256
 			batch.multimesh.visible_instance_count = 0
-			var batch_material := Appearance.material(pipe_color, player_pattern if i == 0 else 0,
+			var batch_material := Appearance.material(pipe_color, player_pattern if i == player_id else 0,
 				2.0 if kind == 0 else PI * 0.5,
-				1.0, player_material if i == 0 else Appearance.Finish.ALLOY,
-				player_joint_style if i == 0 else Appearance.JointStyle.COLLARED)
+				1.0, player_material if i == player_id else Appearance.Finish.ALLOY,
+				player_joint_style if i == player_id else Appearance.JointStyle.COLLARED)
 			batch_material.set_shader_parameter("use_instance_phase", true)
 			batch.material_override = batch_material
 			add_child(batch)
@@ -56,8 +57,8 @@ func ensure_count(total: int) -> void:
 		counts.append([0, 0])
 		var moving := MeshInstance3D.new()
 		var material := Geometry.growing_material(pipe_color,
-			player_material if i == 0 else Appearance.Finish.ALLOY,
-			player_joint_style if i == 0 else Appearance.JointStyle.COLLARED)
+			player_material if i == player_id else Appearance.Finish.ALLOY,
+			player_joint_style if i == player_id else Appearance.JointStyle.COLLARED)
 		moving.material_override = material
 		add_child(moving)
 		active.append(moving)
@@ -76,12 +77,12 @@ func ensure_count(total: int) -> void:
 		heads.append(head)
 		var marker := Label3D.new()
 		marker.text = model.rider_name(i)
-		marker.font_size = 38 if i == 0 else 28
+		marker.font_size = 38 if i == player_id else 28
 		marker.pixel_size = 0.014
 		marker.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		marker.modulate = pipe_color
 		marker.outline_size = 10
-		marker.no_depth_test = i == 0
+		marker.no_depth_test = i == player_id
 		add_child(marker)
 		markers.append(marker)
 
@@ -103,10 +104,10 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 		var rider: Dictionary = model.riders[i]
 		var pipe_color: Color = model.rider_color(i)
 		# Pick once per round; respawns reuse each rider's appearance.
-		var pattern := player_pattern if i == 0 else pattern_rng.randi_range(
+		var pattern := player_pattern if i == player_id else pattern_rng.randi_range(
 			Appearance.Pattern.SOLID, Appearance.Pattern.CHROME)
-		var finish := player_material if i == 0 else Appearance.Finish.ALLOY
-		var joint_style := player_joint_style if i == 0 else pattern_rng.randi_range(
+		var finish := player_material if i == player_id else Appearance.Finish.ALLOY
+		var joint_style := player_joint_style if i == player_id else pattern_rng.randi_range(
 			Appearance.JointStyle.COLLARED, Appearance.JointStyle.SEAMLESS)
 		for batch: MultiMeshInstance3D in batches[i]:
 			Appearance.apply(batch.material_override, pipe_color, pattern, finish, joint_style)
@@ -246,6 +247,25 @@ func commit(moves: Array[Dictionary]) -> void:
 		if move.died:
 			heads[i].visible = false
 			markers[i].visible = false
+
+func rebuild_from_history(histories: Array) -> void:
+	"""Recreate visible authoritative trails after a full network snapshot."""
+	reset(model.riders.size())
+	for i in range(model.riders.size()):
+		if i >= histories.size():
+			continue
+		for raw_move in histories[i]:
+			if not raw_move is Dictionary:
+				continue
+			var move: Dictionary = raw_move
+			var segment_rider := {"cell": move.get("cell", Vector3i.ZERO),
+				"forward": move.get("incoming", Vector3i.FORWARD),
+				"up": move.get("up", Vector3i.UP), "alive": true}
+			begin_rider(i, segment_rider, move.get("outgoing", segment_rider.forward))
+			commit([move])
+		if model.riders[i].alive:
+			begin_rider(i, model.riders[i], model.riders[i].forward)
+			restore_rider(i, model.riders[i])
 
 func remove_rider(index: int) -> void:
 	if index < 0 or index >= batches.size():

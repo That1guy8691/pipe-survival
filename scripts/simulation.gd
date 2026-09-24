@@ -142,8 +142,8 @@ func _next_bot_name(excluded: Array[String]) -> String:
 
 func spawn_cells(count: int) -> Array[Vector3i]:
 	# Wall inlets replace floating starts; spread them across all six faces.
-	var chosen: Array[Vector3i] = [Vector3i(3, 3, 0)]
-	var face_counts := {Vector3i.BACK: 1}
+	# The first inlet is seeded from the round RNG so replaying a seed stays
+	# deterministic while different rounds stop opening from the same location.
 	var candidates: Array[Vector3i] = []
 	var coordinates := [3, roundi(lerpf(3.0, cell_count - 4.0, 1.0 / 3.0)),
 		roundi(lerpf(3.0, cell_count - 4.0, 2.0 / 3.0)), cell_count - 4]
@@ -153,6 +153,11 @@ func spawn_cells(count: int) -> Array[Vector3i]:
 				candidates.append(Vector3i(a, b, edge))
 				candidates.append(Vector3i(a, edge, b))
 				candidates.append(Vector3i(edge, a, b))
+	if candidates.is_empty():
+		return []
+	var first_index := rng.randi_range(0, candidates.size() - 1)
+	var chosen: Array[Vector3i] = [candidates[first_index]]
+	var face_counts := {inlet_direction(chosen[0]): 1}
 	while chosen.size() < count:
 		var best := Vector3i.ZERO
 		var best_distance := -1.0
@@ -164,9 +169,13 @@ func spawn_cells(count: int) -> Array[Vector3i]:
 			var nearest_distance := INF
 			for existing in chosen:
 				nearest_distance = minf(nearest_distance, Vector3(existing - candidate).length_squared())
-			if nearest_distance > best_distance:
+			# Random tie breaking preserves the spacing and face balance rules,
+			# while avoiding a fixed ordering when candidates are equally useful.
+			if nearest_distance > best_distance or (is_equal_approx(nearest_distance, best_distance) and rng.randf() > 0.5):
 				best = candidate
 				best_distance = nearest_distance
+		if best == Vector3i.ZERO:
+			break
 		chosen.append(best)
 		var face := inlet_direction(best)
 		face_counts[face] = face_counts.get(face, 0) + 1

@@ -29,6 +29,13 @@ No download is needed. Click the game to focus it, then use the controls below.
 The browser build uses simpler vertex lighting to reduce shader startup time.
 Desktop keeps its existing lighting. Web exports exclude local build artifacts.
 
+## Browser multiplayer deployment
+
+The browser client and room server are separate deployments. GitHub Pages publishes the Web export through
+`.github/workflows/pages.yml`; the authoritative WebSocket server runs in the Docker image described in
+[`deploy/README.md`](deploy/README.md). Set `application/config/multiplayer_server_url` in `project.godot`
+to the public `wss://` endpoint before publishing the Web build.
+
 ## Run the project on desktop
 
 Double-click `Play.cmd` on Windows with Godot 4.7 installed, or open

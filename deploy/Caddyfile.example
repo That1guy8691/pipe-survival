@@ -1,0 +1,5 @@
+# Rename this file to Caddyfile and replace the hostname before deployment.
+# Caddy automatically handles TLS and WebSocket upgrade forwarding.
+game.example.com {
+    reverse_proxy room-server:8787
+}
