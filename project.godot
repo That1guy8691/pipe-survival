@@ -14,7 +14,7 @@ config/name="PIPE / Survival"
 config/description="Build the maze. Leave yourself a way out."
 run/main_scene="res://main.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
-config/multiplayer_server_url="ws://127.0.0.1:8787"
+config/multiplayer_server_url="wss://pipe-survival.onrender.com"
 
 [display]
 

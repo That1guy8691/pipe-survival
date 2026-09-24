@@ -238,7 +238,7 @@ func _ready() -> void:
 	player_name_entry.text_changed.connect(func(value: String): game.player_name = clean_player_name(value))
 	menu_canvas.add_child(online_server_entry)
 	online_server_entry.placeholder_text = "WebSocket server URL"
-	online_server_entry.text = "ws://127.0.0.1:8787"
+	online_server_entry.text = "wss://pipe-survival.onrender.com"
 	online_server_entry.max_length = 160
 	online_server_entry.add_theme_font_override("font", font)
 	online_server_entry.add_theme_font_size_override("font_size", 18)
