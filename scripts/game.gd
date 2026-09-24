@@ -453,10 +453,14 @@ func _unhandled_input(event: InputEvent) -> void:
 func queue_turn(command: String) -> void:
 	if state not in ["playing", "countdown"] or not sim.riders[player_rider_id()].alive or auto_mode:
 		return
-	if command in ["up", "down", "left", "right"] and turn_queue.size() < 2:
-		turn_queue.append(command)
+	if command not in ["up", "down", "left", "right"]:
+		return
+	if online_mode:
 		if online_connected:
 			online_client.send_turn(command, sim.ticks)
+		return
+	if turn_queue.size() < 2:
+		turn_queue.append(command)
 
 func set_touch_boost(held: bool) -> void:
 	boost_held = held and state == "playing" and not auto_mode and sim.riders[player_rider_id()].alive
