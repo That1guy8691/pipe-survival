@@ -1,5 +1,6 @@
 extends SceneTree
 ## Pointer events pass through viewport GUI hit-testing, with real frame gaps.
+const Appearance = preload("res://scripts/pipe_appearance.gd")
 var game
 var failures := 0
 var checks := 0
@@ -120,6 +121,16 @@ func run() -> void:
 	check(not game.hud.bot_selector.visible and not game.hud.size_selector.visible
 		and game.hud.mode_toggle.visible and game.hud.mode_toggle.text == "MODE / SURVIVAL",
 		"The main title keeps round setup tucked away and shows Survival as the selected mode")
+	check(game.hud.controls_button.visible, "Controls and views are discoverable on the title")
+	await click(game.hud.controls_button)
+	await process_frame
+	check(game.hud.controls_open and game.hud.options_back.visible and not game.hud.primary.visible
+		and not game.hud.options_button.visible, "Controls page opens from the title")
+	await capture("menu-controls.png")
+	await click(game.hud.options_back)
+	await process_frame
+	check(not game.hud.controls_open and game.hud.primary.visible,
+		"Controls page returns to the title without starting a round")
 	await click(game.hud.mode_toggle)
 	await capture("menu-endless-title.png")
 	check(game.endless_mode and game.arena_width == 60 and game.bot_count == 15,
@@ -134,11 +145,43 @@ func run() -> void:
 	await capture("menu-options.png")
 	check(game.hud.pattern_selector.visible and game.hud.pipe_preview.visible,
 		"Game Options shows the pipe pattern selector and live preview")
+	check(game.hud.joint_selector.visible and game.player_joint_style == Appearance.JointStyle.COLLARED,
+		"Joint styles are available with collars selected by default")
+	await choose(game.hud.pattern_selector, Appearance.Pattern.CHECKER)
+	await capture("menu-joints-collared.png")
+	await choose(game.hud.joint_selector, Appearance.JointStyle.SEAMLESS)
+	for _frame in range(4):
+		if game.hud.pipe_preview.current_joint_style == Appearance.JointStyle.SEAMLESS:
+			break
+		await process_frame
+	check(game.hud.pipe_preview.current_joint_style == Appearance.JointStyle.SEAMLESS
+		and game.hud.pipe_preview.materials[0].get_shader_parameter("joint_style") == Appearance.JointStyle.SEAMLESS,
+		"Seamless joint selection updates the live preview")
+	await RenderingServer.frame_post_draw
+	await capture("menu-joints-seamless.png")
 	for pattern in [1, 2, 3, 0, 2]:
 		await choose(game.hud.pattern_selector, pattern)
+		for _frame in range(4):
+			if game.hud.pipe_preview.current_pattern == pattern:
+				break
+			await process_frame
 		check(game.player_pattern == pattern and game.hud.pipe_preview.current_pattern == pattern,
 			"Mouse selects pattern %d and updates the live preview" % pattern)
 		await capture("menu-pattern-%d.png" % pattern)
+	await choose(game.hud.pattern_selector, 8)
+	await capture("menu-chrome-cyan.png")
+	var chrome_color := Color("ee5f83")
+	game.hud.player_color_picker.color = chrome_color
+	game.hud.player_color_picker.emit_signal("color_changed", chrome_color)
+	for _frame in range(4):
+		if game.hud.pipe_preview.current_color == chrome_color:
+			break
+		await process_frame
+	check(game.hud.pipe_preview.current_color == chrome_color
+		and game.hud.pipe_preview.materials[0].get_shader_parameter("pipe_color") == chrome_color,
+		"Changing pipe color updates the Chrome preview material")
+	await capture("menu-chrome-coral.png")
+	await choose(game.hud.pattern_selector, 2)
 	root.size = Vector2i(960, 600)
 	await create_timer(0.25).timeout
 	await capture("menu-options-small.png")
@@ -189,6 +232,9 @@ func run() -> void:
 	check(player_pipe_material.get_shader_parameter("pattern") == 2
 		and game.pipes.active_materials[0].get_shader_parameter("pattern") == 2,
 		"Selected spots reach completed and growing player pipes")
+	check(player_pipe_material.get_shader_parameter("joint_style") == Appearance.JointStyle.SEAMLESS
+		and game.pipes.active_materials[0].get_shader_parameter("joint_style") == Appearance.JointStyle.SEAMLESS,
+		"Selected joint style reaches completed and growing player pipes")
 	await capture("menu-main.png")
 	await click(game.hud.primary)
 	check(game.state == "countdown", "Mouse starts the selected 60-unit arena")
@@ -244,5 +290,26 @@ func run() -> void:
 	touch_event.pressed = false
 	root.push_input(touch_event, true)
 	await capture("menu-small-window.png")
+	game.show_title()
+	await process_frame
+	await capture("menu-main-touch.png")
+	await click(game.hud.controls_button)
+	await process_frame
+	check(game.hud.controls_open and game.hud.options_back.visible
+		and game.hud.options_back.position.y + game.hud.options_back.size.y <= 560.0,
+		"Controls and views fit and remain accessible on a touch-sized screen")
+	await capture("menu-controls-touch.png")
+	await click(game.hud.options_back)
+	await process_frame
+	await click(game.hud.options_button)
+	await process_frame
+	check(game.hud.joint_selector.visible, "Joint styles remain available on a touch-sized screen")
+	await capture("menu-options-joints-touch.png")
+	await scroll_options_to_fov()
+	await process_frame
+	check(game.hud.fov_slider.position.y >= 0.0
+		and game.hud.fov_slider.position.y + game.hud.fov_slider.size.y <= game.hud.options_content.size.y + 1.0,
+		"Touch options scroll keeps the FOV slider inside the panel")
+	await capture("menu-options-fov-touch.png")
 	print("MENU POINTER CHECKS: %d checks, %d failures" % [checks, failures])
 	quit(1 if failures else 0)

@@ -7,6 +7,8 @@ var viewport := SubViewport.new()
 var materials: Array[ShaderMaterial] = []
 var current_color := Color.TRANSPARENT
 var current_pattern := -1
+var current_finish := -1
+var current_joint_style := -1
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -55,13 +57,17 @@ func _ready() -> void:
 	resized.connect(request_update)
 	request_update()
 
-func set_appearance(color: Color, pattern: int) -> void:
-	if current_color == color and current_pattern == pattern:
+func set_appearance(color: Color, pattern: int, finish: int = Appearance.Finish.ALLOY,
+		joint_style: int = Appearance.JointStyle.COLLARED) -> void:
+	if current_color == color and current_pattern == pattern and current_finish == finish \
+			and current_joint_style == joint_style:
 		return
 	current_color = color
 	current_pattern = pattern
+	current_finish = finish
+	current_joint_style = joint_style
 	for material in materials:
-		Appearance.apply(material, color, pattern)
+		Appearance.apply(material, color, pattern, finish, joint_style)
 	request_update()
 
 func request_update() -> void:

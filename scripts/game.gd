@@ -25,6 +25,8 @@ var arena_width := 60
 var player_name := "YOU"
 var player_color := Color("56eddf")
 var player_pattern := PipeRenderer.Appearance.Pattern.SOLID
+var player_material := PipeRenderer.Appearance.Finish.ALLOY
+var player_joint_style := PipeRenderer.Appearance.JointStyle.COLLARED
 var arena: Node3D
 var turn_queue: Array[String]:
 	get: return motion.turn_queue
@@ -110,6 +112,8 @@ func reset_world(seed_value: int = 0, title_preview: bool = false) -> void:
 		add_child(arena)
 	camera.set_arena_size(sim.arena_width)
 	pipes.player_pattern = player_pattern
+	pipes.player_material = player_material
+	pipes.player_joint_style = player_joint_style
 	pipes.reset(sim.riders.size())
 	motion.autoplay = auto_mode
 	motion.reset()

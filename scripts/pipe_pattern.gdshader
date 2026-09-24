@@ -4,6 +4,9 @@ render_mode cull_disabled;
 uniform vec4 pipe_color : source_color;
 uniform vec4 accent_color : source_color;
 uniform int pattern = 0;
+uniform int finish = 0;
+// 0 keeps raised, plain collars; 1 smooths them and carries the pattern through.
+uniform int joint_style = 0;
 uniform float segment_length = 2.0;
 uniform float fill = 1.0;
 uniform float display_brightness = 1.0;
@@ -13,6 +16,9 @@ varying float instance_rainbow_phase;
 
 void vertex() {
 	instance_rainbow_phase = INSTANCE_CUSTOM.x;
+	if (joint_style == 1 && (UV.y < 0.07 || UV.y > 0.93)) {
+		VERTEX -= NORMAL * 0.045;
+	}
 }
 
 vec3 hsv_to_rgb(vec3 hsv) {
@@ -29,13 +35,19 @@ void fragment() {
 	}
 	float around = fract(UV.x + phase);
 	float marking = 0.0;
+	vec3 color;
 	if (pattern == 1) {
 		float band = abs(fract(UV.y * 2.0) - 0.5);
 		float edge = max(fwidth(UV.y * 2.0), 0.001);
 		marking = 1.0 - smoothstep(0.12 - edge, 0.12 + edge, band);
 	} else if (pattern == 2) {
 		// Six repeats close around the circumference; arc length keeps dots round.
-		vec2 grid = vec2(around * 6.0, (UV.y - 0.5) * segment_length / 0.628 + 0.5);
+		float axial = (UV.y - 0.5) * segment_length / 0.628 + 0.5;
+		if (joint_style == 1) {
+			// Whole rows leave matching, uncut dot spacing at both segment ends.
+			axial = UV.y * floor(segment_length / 0.628 + 0.5);
+		}
+		vec2 grid = vec2(around * 6.0, axial);
 		float dot_distance = length(fract(grid) - 0.5);
 		float edge = max(length(fwidth(grid)), 0.001);
 		marking = 1.0 - smoothstep(0.25 - edge, 0.25 + edge, dot_distance);
@@ -57,20 +69,60 @@ void fragment() {
 		float rib = abs(fract(UV.y * 10.0) - 0.5);
 		float edge = max(fwidth(UV.y * 10.0), 0.001);
 		marking = 1.0 - smoothstep(0.07 - edge, 0.07 + edge, rib);
+	} else if (pattern == 8) {
+		float highlight = pow(max(cos((around - 0.28) * TAU), 0.0), 16.0);
+		float dark_reflection = pow(max(cos((around - 0.78) * TAU), 0.0), 7.0);
+		vec3 chrome_shadow = pipe_color.rgb * 0.42;
+		vec3 chrome_reflection = mix(pipe_color.rgb, vec3(1.0), 0.2 + highlight * 0.65);
+		color = mix(chrome_shadow, chrome_reflection, 0.3 + highlight * 0.7);
+		color *= 1.0 - dark_reflection * 0.4;
 	}
 	float collar = smoothstep(0.125, 0.145, UV.y) * (1.0 - smoothstep(0.855, 0.875, UV.y));
-	vec3 color;
 	if (pattern == 3) {
 		// Keep the stripe phase aligned to the rider's up frame at every elbow.
 		color = hsv_to_rgb(vec3(around, 0.9, 1.0));
-	} else {
-		// Unpainted collars separate pieces whose local UV frames change at turns.
-		marking *= collar;
+	} else if (pattern != 8) {
+		if (joint_style == 0) {
+			// The collared style leaves each raised joint plain.
+			marking *= collar;
+		}
 		color = mix(pipe_color.rgb, accent_color.rgb, marking);
 	}
 	color *= display_brightness;
 	ALBEDO = color;
-	METALLIC = 0.62;
-	ROUGHNESS = 0.28;
-	EMISSION = color * 0.13;
+	float metallic = 0.62;
+	float roughness = 0.28;
+	if (finish == 1) {
+		metallic = 0.88;
+		roughness = 0.42;
+	} else if (finish == 2) {
+		metallic = 0.08;
+		roughness = 0.2;
+	} else if (finish == 3) {
+		metallic = 0.0;
+		roughness = 0.34;
+	} else if (finish == 4) {
+		metallic = 0.0;
+		roughness = 0.84;
+	}
+	if (pattern == 8) {
+		metallic = 0.5;
+		roughness = 0.09;
+	}
+	METALLIC = metallic;
+	ROUGHNESS = roughness;
+	SPECULAR = 0.72;
+	float emission_strength = 0.13;
+	if (finish == 2) {
+		emission_strength = 0.08;
+	} else if (finish == 3) {
+		emission_strength = 0.06;
+	} else if (finish == 4) {
+		emission_strength = 0.03;
+	}
+	if (pattern == 8) {
+		emission_strength = 0.22;
+		SPECULAR = 1.0;
+	}
+	EMISSION = color * emission_strength;
 }

@@ -6,6 +6,8 @@ const Inlet = preload("res://scripts/pipe_inlet.gd")
 const Appearance = preload("res://scripts/pipe_appearance.gd")
 enum OverviewStyle { NORMAL, HIGHLIGHT, ENDS }
 var player_pattern := Appearance.Pattern.SOLID
+var player_material := Appearance.Finish.ALLOY
+var player_joint_style := Appearance.JointStyle.COLLARED
 var pattern_rng := RandomNumberGenerator.new()
 var model
 var meshes: Array[ArrayMesh] = []
@@ -43,7 +45,9 @@ func ensure_count(total: int) -> void:
 			batch.multimesh.instance_count = 256
 			batch.multimesh.visible_instance_count = 0
 			var batch_material := Appearance.material(pipe_color, player_pattern if i == 0 else 0,
-				2.0 if kind == 0 else PI * 0.5)
+				2.0 if kind == 0 else PI * 0.5,
+				1.0, player_material if i == 0 else Appearance.Finish.ALLOY,
+				player_joint_style if i == 0 else Appearance.JointStyle.COLLARED)
 			batch_material.set_shader_parameter("use_instance_phase", true)
 			batch.material_override = batch_material
 			add_child(batch)
@@ -51,7 +55,9 @@ func ensure_count(total: int) -> void:
 		batches.append(per_rider)
 		counts.append([0, 0])
 		var moving := MeshInstance3D.new()
-		var material := Geometry.growing_material(pipe_color)
+		var material := Geometry.growing_material(pipe_color,
+			player_material if i == 0 else Appearance.Finish.ALLOY,
+			player_joint_style if i == 0 else Appearance.JointStyle.COLLARED)
 		moving.material_override = material
 		add_child(moving)
 		active.append(moving)
@@ -98,12 +104,14 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 		var pipe_color: Color = model.rider_color(i)
 		# Pick once per round; respawns reuse each rider's pattern.
 		var pattern := player_pattern if i == 0 else pattern_rng.randi_range(
-			Appearance.Pattern.SOLID, Appearance.Pattern.RINGS)
+			Appearance.Pattern.SOLID, Appearance.Pattern.CHROME)
+		var finish := player_material if i == 0 else Appearance.Finish.ALLOY
+		var joint_style := player_joint_style if i == 0 else Appearance.JointStyle.COLLARED
 		for batch: MultiMeshInstance3D in batches[i]:
-			Appearance.apply(batch.material_override, pipe_color, pattern)
+			Appearance.apply(batch.material_override, pipe_color, pattern, finish, joint_style)
 		inlet_materials[i].albedo_color = pipe_color
 		inlet_materials[i].emission = pipe_color * 0.13
-		Appearance.apply(active_materials[i], pipe_color, pattern)
+		Appearance.apply(active_materials[i], pipe_color, pattern, finish, joint_style)
 		var head_material := heads[i].material_override as StandardMaterial3D
 		head_material.albedo_color = pipe_color.lightened(0.25)
 		head_material.emission = pipe_color * 0.5

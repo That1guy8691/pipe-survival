@@ -17,7 +17,7 @@ const ACCENT := Color("56eddf")
 const PLAYER_COLOR := Color("56eddf")
 const OPTIONS_VIEW_TOP := 168.0
 const OPTIONS_VIEW_INSET := 38.0
-const OPTIONS_VIEW_HEIGHT := 322.0
+const OPTIONS_VIEW_HEIGHT := 408.0
 const Appearance = preload("res://scripts/pipe_appearance.gd")
 const PipePreview = preload("res://scripts/pipe_preview.gd")
 const Scoring = preload("res://scripts/scoring.gd")
@@ -27,6 +27,7 @@ var mono := SystemFont.new()
 var primary := Button.new()
 var secondary := Button.new()
 var options_button := Button.new()
+var controls_button := Button.new()
 var options_back := Button.new()
 var bot_selector := OptionButton.new()
 var size_selector := OptionButton.new()
@@ -35,6 +36,8 @@ var player_name_entry := LineEdit.new()
 var player_color_picker := ColorPickerButton.new()
 var player_color_label := Label.new()
 var pattern_selector := OptionButton.new()
+var material_selector := OptionButton.new()
+var joint_selector := OptionButton.new()
 var pipe_preview := PipePreview.new()
 var auto_toggle := Button.new()
 var hud_toggle := Button.new()
@@ -48,6 +51,7 @@ var touch_overview_style := Button.new()
 var touch_overview_focus := Button.new()
 var touch_pause := Button.new()
 var options_open := false
+var controls_open := false
 var touch_ui_enabled := false
 var overlay_draw_active := false
 var touch_draw_active := false
@@ -77,7 +81,7 @@ func _ready() -> void:
 	options_content.position = Vector2(0, OPTIONS_VIEW_TOP)
 	options_content.size = Vector2(560, OPTIONS_VIEW_HEIGHT)
 	options_content.clip_contents = true
-	for button in [primary, secondary, options_button, options_back, auto_toggle, hud_toggle, mode_toggle]:
+	for button in [primary, secondary, options_button, controls_button, options_back, auto_toggle, hud_toggle, mode_toggle]:
 		menu_canvas.add_child(button)
 		button.focus_mode = Control.FOCUS_NONE
 		button.add_theme_font_override("font", font)
@@ -97,16 +101,21 @@ func _ready() -> void:
 	primary.pressed.connect(func(): primary_clicked.emit())
 	secondary.pressed.connect(func(): secondary_clicked.emit())
 	quick_restart.pressed.connect(func(): quick_restart_clicked.emit())
-	for button in [secondary, options_button, options_back]:
+	for button in [secondary, options_button, controls_button, options_back]:
 		button.add_theme_color_override("font_color", MUTED)
 		button.add_theme_stylebox_override("normal", box(Color("162536"), 9))
 		button.add_theme_stylebox_override("hover", box(Color("23384d"), 9))
 	options_button.text = "GAME OPTIONS"
 	options_button.pressed.connect(func():
 		options_open = true
+		controls_open = false
 		options_scroll_offset = 0.0)
+	controls_button.text = "CONTROLS + VIEWS"
+	controls_button.pressed.connect(func():
+		controls_open = true
+		options_open = false)
 	options_back.text = "DONE"
-	options_back.pressed.connect(finish_options)
+	options_back.pressed.connect(close_menu_page)
 	auto_toggle.toggle_mode = true
 	auto_toggle.add_theme_color_override("font_color", MUTED)
 	auto_toggle.add_theme_color_override("font_pressed_color", Color("071d23"))
@@ -213,6 +222,28 @@ func _ready() -> void:
 	pattern_selector.add_theme_stylebox_override("normal", selector_normal)
 	pattern_selector.add_theme_stylebox_override("hover", selector_hover)
 	pattern_selector.item_selected.connect(func(index: int): game.player_pattern = pattern_selector.get_item_id(index))
+	options_content.add_child(material_selector)
+	for i in range(Appearance.FINISH_NAMES.size()):
+		material_selector.add_item(Appearance.FINISH_NAMES[i], i)
+	material_selector.focus_mode = Control.FOCUS_NONE
+	material_selector.tooltip_text = "Choose the surface finish for your pipe"
+	material_selector.add_theme_font_override("font", font)
+	material_selector.add_theme_font_size_override("font_size", 18)
+	material_selector.add_theme_stylebox_override("normal", selector_normal)
+	material_selector.add_theme_stylebox_override("hover", selector_hover)
+	material_selector.item_selected.connect(func(index: int):
+		game.player_material = material_selector.get_item_id(index))
+	options_content.add_child(joint_selector)
+	for i in range(Appearance.JOINT_NAMES.size()):
+		joint_selector.add_item(Appearance.JOINT_NAMES[i], i)
+	joint_selector.focus_mode = Control.FOCUS_NONE
+	joint_selector.tooltip_text = "Choose visible collars or uninterrupted pipe patterns"
+	joint_selector.add_theme_font_override("font", font)
+	joint_selector.add_theme_font_size_override("font_size", 18)
+	joint_selector.add_theme_stylebox_override("normal", selector_normal)
+	joint_selector.add_theme_stylebox_override("hover", selector_hover)
+	joint_selector.item_selected.connect(func(index: int):
+		game.player_joint_style = joint_selector.get_item_id(index))
 	pipe_preview.visible = false
 	options_content.add_child(pipe_preview)
 	build_touch_controls()
@@ -369,6 +400,11 @@ func fit_menu(panel_height: float) -> void:
 		(size.y - panel_height * canvas_scale) / 2.0)
 	update_menu_control_scale()
 
+func overlay_panel_height() -> float:
+	if game.state == "ready" and options_open:
+		return 790.0 if touch_ui_enabled else 664.0
+	return 560.0 if touch_ui_enabled else 520.0
+
 func menu_target_height(base_height: float) -> float:
 	if not touch_ui_enabled:
 		return base_height
@@ -383,8 +419,9 @@ func update_menu_control_scale() -> void:
 	if is_equal_approx(applied_menu_screen_scale, menu_screen_scale):
 		return
 	applied_menu_screen_scale = menu_screen_scale
-	for button in [primary, secondary, options_button, options_back]:
+	for button in [primary, secondary, options_button, controls_button, options_back]:
 		button.add_theme_font_size_override("font_size", menu_control_font_size(20))
+	controls_button.add_theme_font_size_override("font_size", menu_control_font_size(17))
 	for button in [auto_toggle, hud_toggle]:
 		button.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	mode_toggle.add_theme_font_size_override("font_size", menu_control_font_size(15))
@@ -393,9 +430,11 @@ func update_menu_control_scale() -> void:
 	player_name_entry.add_theme_font_size_override("font_size", menu_control_font_size(18))
 	player_color_label.add_theme_font_size_override("font_size", menu_control_font_size(16))
 	pattern_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
+	material_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
+	joint_selector.add_theme_font_size_override("font_size", menu_control_font_size(18))
 
 func options_max_scroll() -> float:
-	var fov_slider_y := 434.0 if touch_ui_enabled else 414.0
+	var fov_slider_y := 596.0 if touch_ui_enabled else 479.0
 	return maxf(76.0, fov_slider_y - OPTIONS_VIEW_INSET + menu_target_height(22.0) - OPTIONS_VIEW_HEIGHT)
 
 func menu_text_font_size(text: String, base_size: int, max_width: float, numeric: bool) -> int:
@@ -491,10 +530,18 @@ func finish_options() -> void:
 	game.player_name = clean_player_name(player_name_entry.text)
 	game.player_color = player_color_picker.color
 	game.player_pattern = pattern_selector.get_selected_id()
+	game.player_material = material_selector.get_selected_id()
+	game.player_joint_style = joint_selector.get_selected_id()
 	player_name_entry.release_focus()
 	options_open = false
 	options_scroll_offset = 0.0
 	game.show_title()
+
+func close_menu_page() -> void:
+	if controls_open:
+		controls_open = false
+	else:
+		finish_options()
 
 func label_at(text: String, location: Vector2, size_value: int = 18, color: Color = INK, numeric: bool = false) -> void:
 	var max_width := 560.0 - location.x - 20.0 if overlay_draw_active else -1.0
@@ -524,14 +571,16 @@ func _process(_delta: float) -> void:
 			touch_turn_requested.emit(pending_direction)
 		if game.state != "ready":
 			options_open = false
-		var panel_height := 664.0 if game.state == "ready" and options_open else (560.0 if touch_ui_enabled else 520.0)
-		fit_menu(panel_height)
+			controls_open = false
+		options_content.size = Vector2(560, 530.0 if touch_ui_enabled else OPTIONS_VIEW_HEIGHT)
+		fit_menu(overlay_panel_height())
 		options_scroll_offset = clampf(options_scroll_offset, 0.0, options_max_scroll())
-		primary.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
+		primary.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and (options_open or controls_open))
 		secondary.visible = game.state in ["paused", "finished"]
-		options_button.visible = game.state == "ready" and not options_open
-		options_back.visible = game.state == "ready" and options_open
-		mode_toggle.visible = game.state == "ready" and not options_open
+		options_button.visible = game.state == "ready" and not options_open and not controls_open
+		controls_button.visible = game.state == "ready" and not options_open and not controls_open
+		options_back.visible = game.state == "ready" and (options_open or controls_open)
+		mode_toggle.visible = game.state == "ready" and not options_open and not controls_open
 		mode_toggle.set_pressed_no_signal(game.endless_mode)
 		quick_restart.visible = game.state == "playing" and not game.sim.riders[0].alive and (game.endless_mode or touch_ui_enabled)
 		quick_restart.text = ("RESPAWNING..." if game.auto_mode else "WAITING FOR SPACE") if game.player_respawn_pending else ("RESTART PIPE" if game.endless_mode else "RESTART ROUND")
@@ -549,12 +598,15 @@ func _process(_delta: float) -> void:
 		player_color_picker.visible = options_content.visible
 		player_color_label.visible = options_content.visible
 		pattern_selector.visible = options_content.visible
+		material_selector.visible = options_content.visible
+		joint_selector.visible = options_content.visible
 		pipe_preview.visible = options_content.visible
 		if pipe_preview.visible:
-			pipe_preview.set_appearance(game.player_color, game.player_pattern)
-		auto_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
+			pipe_preview.set_appearance(game.player_color, game.player_pattern,
+				game.player_material, game.player_joint_style)
+		auto_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and (options_open or controls_open))
 		auto_toggle.set_pressed_no_signal(game.auto_mode)
-		hud_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and options_open)
+		hud_toggle.visible = game.state in ["ready", "paused", "finished"] and not (game.state == "ready" and (options_open or controls_open))
 		hud_toggle.set_pressed_no_signal(game.hud_enabled)
 		var steer_visible: bool = touch_ui_enabled and game.state in ["playing", "countdown"] and not game.auto_mode and game.sim.riders[0].alive
 		var touch_active: bool = touch_ui_enabled and game.state in ["playing", "countdown"]
@@ -825,7 +877,7 @@ func draw_collision_feedback() -> void:
 
 func draw_overlay() -> void:
 	draw_rect(Rect2(Vector2.ZERO, size), Color(0.005, 0.012, 0.025, 0.5))
-	var panel_height := 664.0 if game.state == "ready" and options_open else (560.0 if touch_ui_enabled else 520.0)
+	var panel_height := overlay_panel_height()
 	fit_menu(panel_height)
 	var rect := Rect2(Vector2.ZERO, Vector2(560, panel_height))
 	overlay_draw_active = true
@@ -835,6 +887,8 @@ func draw_overlay() -> void:
 	if game.state == "ready":
 		if options_open:
 			draw_options_page(rect)
+		elif controls_open:
+			draw_controls_page(rect)
 		else:
 			draw_title_page(rect)
 		draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
@@ -938,13 +992,58 @@ func draw_title_page(rect: Rect2) -> void:
 		primary_y = options_y + menu_target_height(43) + 12.0
 		summary_y = primary_y + menu_target_height(52) + 24.0
 	options_button.position = rect.position + Vector2(38, options_y)
-	options_button.size = Vector2(484, menu_target_height(43))
+	options_button.size = Vector2(238, menu_target_height(43))
+	controls_button.visible = true
+	controls_button.text = "CONTROLS" if touch_ui_enabled else "CONTROLS + VIEWS"
+	controls_button.position = rect.position + Vector2(284, options_y)
+	controls_button.size = Vector2(238, menu_target_height(43))
 	primary.visible = true
 	primary.text = "ENTER  /  WATCH AUTO MODE" if game.auto_mode else "ENTER  /  START ROUND"
 	primary.position = rect.position + Vector2(38, primary_y)
 	primary.size = Vector2(484, menu_target_height(52))
 	var mode_name := "ENDLESS" if game.endless_mode else "SURVIVAL"
 	centered("%s    /    YOU + %d BOTS    /    %dM CUBE" % [mode_name, game.bot_count, game.arena_width], rect.position.y + summary_y, 14, MUTED)
+
+func draw_controls_page(rect: Rect2) -> void:
+	centered("CONTROLS + VIEWS", rect.position.y + 65, 31)
+	centered("EXPLORE THE ARENA YOUR WAY", rect.position.y + 94, 14, ACCENT)
+	label_at("KEYBOARD" if touch_ui_enabled else "CAMERA & OVERVIEW",
+		rect.position + Vector2(38, 137), 15, ACCENT)
+	var view_lines: Array[String]
+	var play_lines: Array[String]
+	if touch_ui_enabled:
+		view_lines = ["WASD  /  steer; Shift  /  boost",
+			"C  /  Chase, First Person, Overview",
+			"V  /  pipe display; Tab  /  highlight a pipe",
+			"Arrows  /  look or orbit; Q / E  /  FOV",
+			"Right drag  /  orbit; wheel  /  zoom",
+			"F  /  Auto Mode; H  /  hide HUD; Esc  /  pause",
+			"R  /  restart; Enter  /  start or replay"]
+		play_lines = ["VIEW swaps cameras; PIPES changes display",
+			"NEXT highlights a pipe; drag to steer or orbit",
+			"Pinch to zoom; hold BOOST; tap PAUSE"]
+	else:
+		view_lines = ["C  /  Chase, First Person, Overview",
+			"V  /  Normal, highlight, bright ends",
+			"Tab / Shift+Tab  /  Highlight another pipe",
+			"Arrows look or orbit; right drag orbits overview",
+			"Wheel zooms overview; Q / E changes FOV"]
+		play_lines = ["WASD steers; hold Shift to boost; R restarts",
+			"F toggles Auto Mode; H hides HUD and labels",
+			"Esc pauses or resumes"]
+	var line_step := 30 if touch_ui_enabled else 27
+	for i in range(view_lines.size()):
+		label_at(view_lines[i], rect.position + Vector2(38, 164 + i * line_step), 16 if touch_ui_enabled else 17, INK)
+	var play_heading_y := 380 if touch_ui_enabled else 325
+	label_at("TOUCH CONTROLS" if touch_ui_enabled else "PLAY & DISPLAY",
+		rect.position + Vector2(38, play_heading_y), 15, ACCENT)
+	for i in range(play_lines.size()):
+		label_at(play_lines[i], rect.position + Vector2(38, play_heading_y + 28 + i * line_step),
+			16 if touch_ui_enabled else 17, INK)
+	options_back.visible = true
+	options_back.text = "BACK TO TITLE"
+	options_back.position = rect.position + Vector2(38, 447 if not touch_ui_enabled else 488)
+	options_back.size = Vector2(484, menu_target_height(44))
 
 func draw_title_mode_controls(rect: Rect2, offset_y: float) -> void:
 	var width := 156.0
@@ -963,16 +1062,18 @@ func draw_title_mode_controls(rect: Rect2, offset_y: float) -> void:
 func draw_options_page(rect: Rect2) -> void:
 	centered("ROUND OPTIONS", rect.position.y + 64, 31)
 	centered("ROUND AND PLAYER SETTINGS", rect.position.y + 94, 14, ACCENT)
-	centered("Choose a pipe color and pattern; swipe or scroll for camera settings.",
+	centered("Choose color, pattern, material, and joints; scroll for camera settings.",
 		rect.position.y + 130, 16, MUTED)
-	var name_label_y := 123.0 if not touch_ui_enabled else 135.0
-	var name_field_y := 135.0 if not touch_ui_enabled else 147.0
-	var color_label_y := 207.0 if not touch_ui_enabled else 230.0
-	var color_field_y := 219.0 if not touch_ui_enabled else 242.0
-	var preview_y := 281.0 if not touch_ui_enabled else 322.0
-	var preview_height := 96.0 if not touch_ui_enabled else 82.0
-	var fov_label_y := 405.0 if not touch_ui_enabled else 425.0
-	var fov_slider_y := 414.0 if not touch_ui_enabled else 434.0
+	var name_label_y := 123.0 if not touch_ui_enabled else 144.0
+	var name_field_y := 135.0 if not touch_ui_enabled else 160.0
+	var color_label_y := 207.0 if not touch_ui_enabled else 253.0
+	var color_field_y := 219.0 if not touch_ui_enabled else 269.0
+	var material_label_y := 281.0 if not touch_ui_enabled else 361.0
+	var material_field_y := 293.0 if not touch_ui_enabled else 377.0
+	var preview_y := 349.0 if not touch_ui_enabled else 463.0
+	var preview_height := 96.0 if not touch_ui_enabled else 90.0
+	var fov_label_y := 470.0 if not touch_ui_enabled else 582.0
+	var fov_slider_y := 479.0 if not touch_ui_enabled else 596.0
 	draw_set_transform(menu_canvas.position + Vector2(0, (OPTIONS_VIEW_TOP - options_scroll_offset) * menu_canvas.scale.y),
 		0.0, menu_canvas.scale)
 	draw_option_label("BOT COUNT", Vector2(38, 40.0 - OPTIONS_VIEW_INSET), 15, MUTED)
@@ -1001,6 +1102,14 @@ func draw_options_page(rect: Rect2) -> void:
 	pattern_selector.position = Vector2(291, color_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
 	pattern_selector.size = Vector2(231, menu_target_height(46))
 	pattern_selector.select(pattern_selector.get_item_index(game.player_pattern))
+	draw_option_label("PIPE MATERIAL", Vector2(38, material_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
+	draw_option_label("JOINT STYLE", Vector2(291, material_label_y - OPTIONS_VIEW_INSET), 15, MUTED)
+	material_selector.position = Vector2(38, material_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	material_selector.size = Vector2(231, menu_target_height(46))
+	material_selector.select(material_selector.get_item_index(game.player_material))
+	joint_selector.position = Vector2(291, material_field_y - OPTIONS_VIEW_INSET - options_scroll_offset)
+	joint_selector.size = Vector2(231, menu_target_height(46))
+	joint_selector.select(joint_selector.get_item_index(game.player_joint_style))
 	pipe_preview.position = Vector2(38, preview_y - OPTIONS_VIEW_INSET - options_scroll_offset)
 	pipe_preview.size = Vector2(484, preview_height)
 	var preview_content_top := preview_y - OPTIONS_VIEW_INSET
@@ -1029,10 +1138,10 @@ func draw_options_page(rect: Rect2) -> void:
 	draw_set_transform(menu_canvas.position, 0.0, menu_canvas.scale)
 	options_back.visible = true
 	options_back.text = "DONE"
-	options_back.position = Vector2(38, 584)
+	options_back.position = Vector2(38, 716 if touch_ui_enabled else 584)
 	options_back.size = Vector2(484, menu_target_height(44))
-	var footer_y := 650.0 if not touch_ui_enabled else 552.0
-	centered("PLAYING AS %s  /  %d BOTS  /  %dm CUBE" % [game.player_name, game.bot_count, game.arena_width], rect.position.y + footer_y, 14, MUTED)
+	if not touch_ui_enabled:
+		centered("PLAYING AS %s  /  %d BOTS  /  %dm CUBE" % [game.player_name, game.bot_count, game.arena_width], rect.position.y + 650.0, 14, MUTED)
 
 func draw_option_label(text: String, position: Vector2, size_value: int, color: Color, numeric := false) -> void:
 	if position.y < options_scroll_offset or position.y > options_scroll_offset + options_content.size.y - 18.0:

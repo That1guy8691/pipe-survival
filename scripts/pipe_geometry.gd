@@ -59,5 +59,6 @@ static func material(color: Color) -> StandardMaterial3D:
 	result.emission = color * 0.13
 	return result
 
-static func growing_material(color: Color) -> ShaderMaterial:
-	return Appearance.material(color, Appearance.Pattern.SOLID, 2.0, 0.0)
+static func growing_material(color: Color, finish: int = Appearance.Finish.ALLOY,
+		joint_style: int = Appearance.JointStyle.COLLARED) -> ShaderMaterial:
+	return Appearance.material(color, Appearance.Pattern.SOLID, 2.0, 0.0, finish, joint_style)
