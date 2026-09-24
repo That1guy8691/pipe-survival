@@ -100,6 +100,15 @@ func rider_color(index: int) -> Color:
 func rider_name(index: int) -> String:
 	return str(riders[index].name)
 
+func cycle_bot_identity(index: int) -> bool:
+	if index <= 0 or index >= riders.size():
+		return false
+	var excluded_names: Array[String] = []
+	for other_index in range(riders.size()):
+		excluded_names.append(rider_name(other_index))
+	riders[index].name = _next_bot_name(excluded_names)
+	return true
+
 func _name_is_taken(candidate: String, names: Array[String]) -> bool:
 	for name in names:
 		if candidate.to_lower() == name.to_lower():

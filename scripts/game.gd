@@ -7,7 +7,9 @@ const Arena = preload("res://scripts/arena.gd")
 const CameraRig = preload("res://scripts/camera_rig.gd")
 const Hud = preload("res://scripts/hud.gd")
 const OrbRenderer = preload("res://scripts/orb_renderer.gd")
-const BOT_RESPAWN_DELAY := 2.5
+const AUTO_PLAYER_RESPAWN_DELAY := 2.5
+const BOT_RESPAWN_MIN_DELAY := 4.0
+const BOT_RESPAWN_MAX_DELAY := 12.0
 const RESPAWN_RETRY_DELAY := 0.75
 const TITLE_PREVIEW_STEPS := 60
 const CRASH_VIEW_DURATION := 1.25
@@ -47,6 +49,7 @@ var score_message_time := 0.0
 var fov_message_time := 0.0
 var fov_message := ""
 var respawn_timers: Array[float] = []
+var respawn_rng := RandomNumberGenerator.new()
 var player_respawn_pending := false
 var title_preview_steps_left := 0
 var crash_view_time := 0.0
@@ -56,6 +59,7 @@ var collision_position := Vector3.ZERO
 var collision_feedback_label := ""
 
 func _ready() -> void:
+	respawn_rng.randomize()
 	if not DisplayServer.is_touchscreen_available():
 		DisplayServer.window_set_min_size(Vector2i(960, 600))
 	pipes.model = sim
@@ -166,7 +170,7 @@ func set_auto_mode(enabled: bool) -> void:
 	if endless_mode and state in ["playing", "paused"] and not sim.riders[0].alive:
 		if enabled and not player_respawn_pending:
 			player_respawn_pending = true
-			respawn_timers[0] = BOT_RESPAWN_DELAY
+			respawn_timers[0] = AUTO_PLAYER_RESPAWN_DELAY
 		elif not enabled and was_auto:
 			player_respawn_pending = false
 			respawn_timers[0] = -1.0
@@ -232,12 +236,14 @@ func on_completed(moves: Array[Dictionary]) -> void:
 				player_elimination = move
 		if endless_mode and move.died:
 			var dead_id: int = move.id
-			respawn_timers[dead_id] = BOT_RESPAWN_DELAY if dead_id > 0 or auto_mode else -1.0
 			if dead_id == 0:
+				respawn_timers[dead_id] = AUTO_PLAYER_RESPAWN_DELAY if auto_mode else -1.0
 				player_respawn_pending = auto_mode
 				boost_held = false
 				motion.boost_requested = false
 				motion.turn_queue.clear()
+			else:
+				respawn_timers[dead_id] = roll_bot_respawn_delay()
 		pipes.animate_rider(move.id, 1.0)
 	for award: Dictionary in sim.scoring.last_awards:
 		if award.rider_id != 0:
@@ -497,6 +503,9 @@ func request_player_restart() -> void:
 	respawn_timers[0] = 0.0
 	advance_endless_respawns(0.0)
 
+func roll_bot_respawn_delay() -> float:
+	return respawn_rng.randf_range(BOT_RESPAWN_MIN_DELAY, BOT_RESPAWN_MAX_DELAY)
+
 func advance_endless_respawns(delta: float) -> void:
 	for i in range(sim.riders.size()):
 		if sim.riders[i].alive:
@@ -515,8 +524,11 @@ func advance_endless_respawns(delta: float) -> void:
 		if i == 0:
 			player_respawn_pending = false
 			watch_id = 0
-		elif not sim.riders[watch_id].alive:
-			watch_id = i
+		else:
+			sim.cycle_bot_identity(i)
+			pipes.reroll_bot_appearance(i)
+			if not sim.riders[watch_id].alive:
+				watch_id = i
 		pipes.restore_rider(i, sim.riders[i])
 		motion.respawn_rider(i)
 		camera.initialized = false

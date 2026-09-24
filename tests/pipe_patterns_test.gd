@@ -162,20 +162,38 @@ func check_bot_patterns(game) -> void:
 	game.start_round(812)
 	game.state = "playing"
 	var seen := {}
+	var seen_joint_styles := {}
 	for i in range(1, game.sim.riders.size()):
 		var material: ShaderMaterial = game.pipes.active_materials[i]
 		var pattern: int = material.get_shader_parameter("pattern")
+		var joint_style: int = material.get_shader_parameter("joint_style")
+		var bot_name: String = game.sim.rider_name(i)
 		seen[pattern] = true
+		seen_joint_styles[joint_style] = true
+		check(joint_style in range(Appearance.JointStyle.size()),
+			"Bot %d must use a supported random joint style" % i)
 		for batch in game.pipes.batches[i]:
 			check(batch.material_override.get_shader_parameter("pattern") == pattern,
 				"Bot %d must keep its pattern across straight and elbow sections" % i)
+			check(batch.material_override.get_shader_parameter("joint_style") == joint_style,
+				"Bot %d must use its joint style across straight and elbow sections" % i)
 		game.sim.remove_rider_trail(i)
 		game.sim.riders[i].alive = false
 		game.pipes.remove_rider(i)
 		game.respawn_timers[i] = 0.0
 		game.advance_endless_respawns(0.01)
 		check(game.sim.riders[i].alive, "Bot %d must respawn" % i)
-		check(material.get_shader_parameter("pattern") == pattern,
-			"Bot %d must keep its random pattern after respawning" % i)
+		var respawned_pattern: int = material.get_shader_parameter("pattern")
+		var respawned_joint_style: int = material.get_shader_parameter("joint_style")
+		check(game.sim.rider_name(i) != bot_name and game.pipes.markers[i].text == game.sim.rider_name(i),
+			"Bot %d must return under a new name" % i)
+		check(respawned_pattern != pattern and respawned_pattern in range(Appearance.Pattern.size()),
+			"Bot %d must return with a different supported pattern" % i)
+		for batch in game.pipes.batches[i]:
+			check(batch.material_override.get_shader_parameter("pattern") == respawned_pattern
+				and batch.material_override.get_shader_parameter("joint_style") == respawned_joint_style,
+				"Bot %d must apply its new appearance across every pipe section" % i)
 	for pattern in range(Appearance.Pattern.size()):
 		check(seen.has(pattern), "Seeded bot selection must include %s" % Appearance.NAMES[pattern])
+	for joint_style in range(Appearance.JointStyle.size()):
+		check(seen_joint_styles.has(joint_style), "Seeded bot selection must include the %s joint style" % Appearance.JOINT_NAMES[joint_style])

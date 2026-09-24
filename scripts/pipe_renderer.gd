@@ -102,11 +102,12 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 		plans.append({})
 		var rider: Dictionary = model.riders[i]
 		var pipe_color: Color = model.rider_color(i)
-		# Pick once per round; respawns reuse each rider's pattern.
+		# Pick once per round; respawns reuse each rider's appearance.
 		var pattern := player_pattern if i == 0 else pattern_rng.randi_range(
 			Appearance.Pattern.SOLID, Appearance.Pattern.CHROME)
 		var finish := player_material if i == 0 else Appearance.Finish.ALLOY
-		var joint_style := player_joint_style if i == 0 else Appearance.JointStyle.COLLARED
+		var joint_style := player_joint_style if i == 0 else pattern_rng.randi_range(
+			Appearance.JointStyle.COLLARED, Appearance.JointStyle.SEAMLESS)
 		for batch: MultiMeshInstance3D in batches[i]:
 			Appearance.apply(batch.material_override, pipe_color, pattern, finish, joint_style)
 		inlet_materials[i].albedo_color = pipe_color
@@ -120,6 +121,20 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 		var forward: Vector3i = rider.source_forward
 		inlets[i].transform = Transform3D(Geometry.orientation(forward, forward),
 			model.world(rider.source_cell) - Vector3(forward) * Rules.SPACING * 0.5)
+
+func reroll_bot_appearance(index: int) -> void:
+	if index <= 0 or index >= active_materials.size():
+		return
+	var old_pattern := int(active_materials[index].get_shader_parameter("pattern"))
+	var pattern_offset := pattern_rng.randi_range(0, Appearance.Pattern.size() - 2)
+	var pattern := pattern_offset + 1 if pattern_offset >= old_pattern else pattern_offset
+	var joint_style := pattern_rng.randi_range(
+		Appearance.JointStyle.COLLARED, Appearance.JointStyle.SEAMLESS)
+	var pipe_color: Color = model.rider_color(index)
+	for batch: MultiMeshInstance3D in batches[index]:
+		Appearance.apply(batch.material_override, pipe_color, pattern, Appearance.Finish.ALLOY, joint_style)
+	Appearance.apply(active_materials[index], pipe_color, pattern,
+		Appearance.Finish.ALLOY, joint_style)
 
 func set_overview_style(style: int, focus_id: int) -> void:
 	if style == applied_overview_style and focus_id == applied_focus_id:
@@ -254,6 +269,7 @@ func restore_rider(index: int, rider: Dictionary) -> void:
 	inlets[index].visible = true
 	heads[index].position = model.world(rider.cell)
 	markers[index].position = model.world(rider.cell) + Vector3(rider.up) * 1.65
+	markers[index].text = model.rider_name(index)
 	heads[index].visible = true
 	markers[index].visible = true
 

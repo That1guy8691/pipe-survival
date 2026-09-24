@@ -132,6 +132,15 @@ func test_title_mode_and_live_restart() -> void:
 	game.automated = true
 	root.add_child(game)
 	await process_frame
+	game.respawn_rng.seed = 9021
+	var first_bot_delay: float = game.roll_bot_respawn_delay()
+	var second_bot_delay: float = game.roll_bot_respawn_delay()
+	check(first_bot_delay >= game.BOT_RESPAWN_MIN_DELAY
+		and first_bot_delay <= game.BOT_RESPAWN_MAX_DELAY
+		and second_bot_delay >= game.BOT_RESPAWN_MIN_DELAY
+		and second_bot_delay <= game.BOT_RESPAWN_MAX_DELAY
+		and not is_equal_approx(first_bot_delay, second_bot_delay),
+		"Bot respawns use varied delays within the configured range")
 	game.bot_count = 1
 	game.arena_width = 40
 	game.player_name = "MATRIX"
@@ -162,6 +171,8 @@ func test_title_mode_and_live_restart() -> void:
 	sim.occupied[sim.riders[1].cell] = 1
 	sim.occupied[Vector3i(1, 10, 10)] = 1
 	game.pipes.reset(2)
+	var old_bot_name: String = sim.rider_name(1)
+	var old_bot_pattern: int = game.pipes.active_materials[1].get_shader_parameter("pattern")
 	game.motion.reset()
 	game.motion.directions[0] = Vector3i.RIGHT
 	game.motion.directions[1] = Vector3i.LEFT
@@ -169,14 +180,16 @@ func test_title_mode_and_live_restart() -> void:
 	var bot_movers: Array[int] = [1]
 	var bot_death: Array[Dictionary] = sim.advance(game.motion.directions, bot_movers, 0.0)
 	game.on_completed(bot_death)
-	check(not sim.riders[1].alive and game.respawn_timers[1] == game.BOT_RESPAWN_DELAY,
-		"A dead bot gets a short automatic respawn timer")
+	check(not sim.riders[1].alive
+		and game.respawn_timers[1] >= game.BOT_RESPAWN_MIN_DELAY
+		and game.respawn_timers[1] <= game.BOT_RESPAWN_MAX_DELAY,
+		"A dead bot gets a randomized respawn timer")
 	for x in range(sim.cell_count):
 		for y in range(sim.cell_count):
 			for z in range(sim.cell_count):
 				if x == 0 or y == 0 or z == 0 or x == sim.cell_count - 1 or y == sim.cell_count - 1 or z == sim.cell_count - 1:
 					sim.occupied[Vector3i(x, y, z)] = 0
-	game.advance_endless_respawns(game.BOT_RESPAWN_DELAY)
+	game.advance_endless_respawns(game.respawn_timers[1])
 	check(not sim.riders[1].alive and game.respawn_timers[1] == game.RESPAWN_RETRY_DELAY,
 		"A bot waits and retries when no wall spawn is available")
 	sim.occupied.clear()
@@ -186,6 +199,15 @@ func test_title_mode_and_live_restart() -> void:
 	check(bot.alive and sim.occupied.get(bot.cell, -1) == 1
 		and sim.is_open(bot.cell + bot.forward) and game.pipes.inlets[1].visible,
 		"The bot returns at a safe spawn with its renderer restored")
+	var new_bot_pattern: int = game.pipes.active_materials[1].get_shader_parameter("pattern")
+	check(sim.rider_name(1) != old_bot_name and game.pipes.markers[1].text == sim.rider_name(1),
+		"A returning bot gets a fresh name in the room")
+	check(new_bot_pattern != old_bot_pattern
+		and new_bot_pattern in range(Renderer.Appearance.Pattern.size()),
+		"A returning bot gets a different supported pipe pattern")
+	for batch in game.pipes.batches[1]:
+		check(batch.material_override.get_shader_parameter("pattern") == new_bot_pattern,
+			"A returning bot uses its new pattern on every pipe segment")
 
 	# Put the player directly against the bot's trail to exercise the quick restart.
 	sim.remove_rider_trail(0)
@@ -264,15 +286,16 @@ func test_auto_respawn() -> void:
 	var movers: Array[int] = [0, 1]
 	game.pipes.begin_step(sim.riders, directions)
 	game.on_completed(sim.advance(directions, movers, 0.0))
+	game.respawn_timers[1] = game.BOT_RESPAWN_MAX_DELAY
 	check(sim.alive_ids().is_empty() and not sim.finished and game.player_respawn_pending
-		and game.respawn_timers[0] == game.BOT_RESPAWN_DELAY,
+		and game.respawn_timers[0] == game.AUTO_PLAYER_RESPAWN_DELAY,
 		"Auto Mode schedules the player's restart even when every rider dies")
 	check(sim.riders[0].score == 0 and sim.riders[1].score == 0
 		and sim.riders[1].orb_count == 0 and sim.riders[1].eliminations == 0,
 		"Both player and bot scores reset on death")
 	game.toggle_pause()
 	game._process(1.0)
-	check(game.respawn_timers[0] == game.BOT_RESPAWN_DELAY and sim.alive_ids().is_empty(),
+	check(game.respawn_timers[0] == game.AUTO_PLAYER_RESPAWN_DELAY and sim.alive_ids().is_empty(),
 		"Pausing freezes automatic respawn timers")
 	game.toggle_pause()
 	game.advance_endless_respawns(1.0)
@@ -284,15 +307,18 @@ func test_auto_respawn() -> void:
 				sim.occupied[Vector3i(side, a, b)] = 1
 				sim.occupied[Vector3i(a, side, b)] = 1
 				sim.occupied[Vector3i(a, b, side)] = 1
-	game.advance_endless_respawns(game.BOT_RESPAWN_DELAY)
+	game.advance_endless_respawns(game.AUTO_PLAYER_RESPAWN_DELAY)
 	check(game.player_respawn_pending and not sim.riders[0].alive
 		and game.respawn_timers[0] == game.RESPAWN_RETRY_DELAY,
 		"Auto Mode keeps retrying the player's restart when every inlet is blocked")
 	sim.occupied.clear()
 	game.advance_endless_respawns(game.RESPAWN_RETRY_DELAY)
-	check(sim.alive_ids().size() == 2 and not game.player_respawn_pending and game.state == "playing"
-		and game.pipes.active[0].visible and game.pipes.active[1].visible,
-		"Both riders resume automatically once safe inlets reopen")
+	check(sim.riders[0].alive and not sim.riders[1].alive and not game.player_respawn_pending
+		and game.state == "playing" and game.pipes.active[0].visible and not game.pipes.active[1].visible,
+		"The player can return while the bot remains away for its longer timer")
+	game.advance_endless_respawns(game.respawn_timers[1])
+	check(sim.riders[1].alive and game.pipes.active[1].visible,
+		"The bot returns after its own respawn timer expires")
 	# Enabling Auto Mode after a manual crash must also recover the player's pipe.
 	game.set_auto_mode(false)
 	sim.riders[0].alive = false
@@ -300,15 +326,15 @@ func test_auto_respawn() -> void:
 	game.pipes.remove_rider(0)
 	game.toggle_pause()
 	game.set_auto_mode(true)
-	check(game.player_respawn_pending and game.respawn_timers[0] == game.BOT_RESPAWN_DELAY,
+	check(game.player_respawn_pending and game.respawn_timers[0] == game.AUTO_PLAYER_RESPAWN_DELAY,
 		"Enabling Auto Mode from the pause menu while dead schedules a restart")
 	game.toggle_pause()
 	game.set_auto_mode(false)
-	game.advance_endless_respawns(game.BOT_RESPAWN_DELAY)
+	game.advance_endless_respawns(game.AUTO_PLAYER_RESPAWN_DELAY)
 	check(not sim.riders[0].alive and not game.player_respawn_pending,
 		"Returning to manual control leaves restart under the player's control")
 	game.set_auto_mode(true)
-	game.advance_endless_respawns(game.BOT_RESPAWN_DELAY)
+	game.advance_endless_respawns(game.AUTO_PLAYER_RESPAWN_DELAY)
 	check(sim.riders[0].alive, "Re-enabling Auto Mode restarts the player's pipe")
 	game.queue_free()
 	await process_frame
