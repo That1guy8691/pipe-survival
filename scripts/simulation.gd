@@ -66,7 +66,7 @@ func reset(seed_value: int = 0, bot_count: int = DEFAULT_BOTS, width: int = 60,
 	finished = false
 	winner = -1
 	elapsed_time = 0.0
-	var spawns := spawn_cells(clampi(bot_count, 1, MAX_BOTS) + 1)
+	var spawns := spawn_cells(clampi(bot_count, 0, MAX_BOTS) + 1)
 	var round_names: Array[String] = [player_name]
 	for i in range(spawns.size()):
 		var cell := spawns[i]
@@ -401,7 +401,8 @@ func advance(directions: Array[Vector3i], movers: Array[int] = [], elapsed: floa
 			rider.boosting = false
 			rider.death_tick = ticks + 1
 			rider.cause = cause
-			rider.score = 0
+			if riders.size() > 1 or endless_mode:
+				rider.score = 0
 			if endless_mode:
 				rider.orb_count = 0
 				rider.eliminations = 0
@@ -422,7 +423,8 @@ func advance(directions: Array[Vector3i], movers: Array[int] = [], elapsed: floa
 			scoring.refill(self)
 	ticks += 1
 	var living := alive_ids()
-	if not endless_mode and living.size() <= 1:
+	var solo_survivor := riders.size() == 1 and living.size() == 1
+	if not endless_mode and living.size() <= 1 and not solo_survivor:
 		finished = true
 		winner = living[0] if living.size() == 1 else -1
 		if winner >= 0:

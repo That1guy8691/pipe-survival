@@ -3,6 +3,7 @@ extends Camera3D
 const Rules = preload("res://scripts/simulation.gd")
 const MIN_FOV := 60.0
 const MAX_FOV := 110.0
+const DEFAULT_CHASE_DISTANCE := 6.315
 
 enum View { CHASE, FIRST_PERSON, OVERVIEW }
 var view: View = View.CHASE
@@ -17,6 +18,7 @@ var yaw := 0.67
 var pitch := 0.43
 var chase_yaw := 0.0
 var chase_pitch := 0.407
+var chase_distance := DEFAULT_CHASE_DISTANCE
 var first_person_yaw := 0.0
 var first_person_pitch := 0.0
 var arena_width := Rules.DEFAULT_WIDTH
@@ -42,7 +44,10 @@ func set_base_fov(value: float) -> void:
 	base_fov = clampf(value, MIN_FOV, MAX_FOV)
 
 func toggle() -> void:
-	view = (view + 1) % View.size() as View
+	set_view((view + 1) % View.size())
+
+func set_view(next_view: int) -> void:
+	view = clampi(next_view, View.CHASE, View.OVERVIEW) as View
 	initialized = false
 
 func view_name() -> String:
@@ -105,7 +110,7 @@ func follow(pose: Dictionary, delta: float, force_overview: bool = false) -> voi
 		var right := forward.cross(up).normalized()
 		var offset_direction := -forward * cos(chase_yaw) * cos(chase_pitch)
 		offset_direction += right * sin(chase_yaw) * cos(chase_pitch) + up * sin(chase_pitch)
-		target_position = pose.position + offset_direction * 6.315
+		target_position = pose.position + offset_direction * chase_distance
 		var camera_limit := arena_width * 0.5 - 0.6
 		target_position = target_position.clamp(Vector3.ONE * -camera_limit, Vector3.ONE * camera_limit)
 		var focus: Vector3 = pose.position + forward * 4.5

@@ -33,6 +33,10 @@ The title screen's **ONLINE** panel has three browser friendly paths:
 
 After the server welcomes a player, full snapshots include rider stats and trail history. The client rebuilds the 3D pipe renderer from that authoritative history, then applies tick moves and join/leave snapshots. Solo play continues to use the local simulation.
 
+`scripts/online_playback.gd` owns snapshot decoding and buffered move playback. Room exits share one cleanup path in `scripts/game.gd`: returning to title or losing the connection clears playback and restores a local exhibition. Pause and focus loss release held boost on the server.
+
+The headless `tests/online_session_test.gd` covers session cleanup, late packets, boost release, and switching from local arena settings to a server snapshot. For a real connection check, start the local server above with `--port=8789`, then run `tests/online_session_loopback_test.gd` with the same headless Godot command. It checks joining, immediate reconnection, and return to local play.
+
 Join snapshots include every live trail segment, so a late joiner can see every cell that still blocks movement. Dead riders' trails are removed from the room and its history.
 
 Room hosts have server hooks for locking a room and kicking a peer. Those controls are intentionally protocol-level for now so a moderation UI can be added without changing simulation authority.

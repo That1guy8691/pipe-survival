@@ -3,7 +3,7 @@
 A Godot 4.7 game inspired by the classic growing-pipes screensaver.
 Choose Survival, where old trails remain and the last pipe alive wins, or Endless,
 where trails disappear when riders die and pipes return inside the same finite cube.
-Choose 7, 15, 23, or 31 bots on the title screen; the default is 15.
+Choose 0–31 bots on the title screen; 0 starts a solo run and the default is 15.
 Choose a 40, 60, 80, or 100-unit cube with the Arena Size dropdown; the default is 60.
 Adjust the camera's base field of view from 60° to 110° in Game Options.
 Both dropdowns and the Start, Resume, and Back to Title buttons support mouse clicks.
@@ -149,7 +149,7 @@ Survival points stop when you die; the last surviving pipe wins regardless of sc
 
 - Selectable cube width: 40, 60, 80, or 100 units, using 2-unit cells.
 - Arena geometry, spawns, pickups, and cameras use the selected width.
-- One human and 7, 15, 23, or 31 local bots, each with a colored, named pipe.
+- One human and 0–31 local bots, each with a colored, named pipe.
 - Pipe body diameter: 1.2 units, with slightly wider joint collars.
 - Three cell transitions per second (6 grid units per second); bends follow rounded paths.
 - Wall, self-pipe, and other-pipe collisions eliminate a player.
@@ -179,7 +179,9 @@ Endless respawn and trail cleanup use the same simulation and renderer ownership
 `scripts/camera_rig.gd` owns chase, orbit, and zoom.
 `scripts/arena.gd` builds the cube and lighting.
 `scripts/game.gd` owns input, round flow, and presentation coordination.
+`scripts/online_playback.gd` owns server snapshot decoding, move buffering, and playback.
 `scripts/hud.gd` draws the interface.
+`scripts/hud_touch_controls.gd` owns touch buttons, joystick input, and camera gestures.
 
 ## Focused checks
 
@@ -193,7 +195,12 @@ Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/end
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/pipe_patterns_test.gd
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/arena_sizes_test.gd
 Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/inlets_test.gd
+Godot_v4.7-stable_win64_console.exe --headless --path . --script res://tests/touch_controls_test.gd
 ```
+
+The touch check injects viewport events for steering, orbit, pinch zoom, boost, and
+gesture cancellation across pause, focus loss, title transitions, and restart.
+It does not replace testing on a physical touch device.
 
 The opt-in rendered smoke driver uses in-engine input events, captures camera/UI
 states, exercises a complete match, and samples larger bot counts. Provide an existing absolute output directory:

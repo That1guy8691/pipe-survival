@@ -73,6 +73,33 @@ func choose(selector: OptionButton, index: int) -> void:
 	await create_timer(0.15).timeout
 	check(not popup.visible, "Clicking a popup item commits and closes the dropdown")
 
+func choose_bot_count(count: int) -> void:
+	var previous_count: int = game.bot_count
+	await click(game.hud.bot_selector)
+	var popup: PopupMenu = game.hud.bot_selector.get_popup()
+	check(popup.visible and game.bot_count == previous_count,
+		"Opening the scrolling bot list does not select a count on mouse release")
+	if not popup.visible:
+		return
+	check(popup.size.y <= 320, "The bot popup fits within its scrolling height limit")
+	await capture("menu-bot-count-popup.png")
+	# Navigate the scrolling list through viewport input; item IDs are the bot counts.
+	var target: int = game.hud.bot_selector.get_item_index(count)
+	var focused := popup.get_focused_item()
+	var steps: int = target + 1 if focused < 0 else (target - focused + popup.item_count) % popup.item_count
+	var keys: Array[int] = []
+	for _step in range(steps):
+		keys.append(KEY_DOWN)
+	keys.append(KEY_ENTER)
+	for code in keys:
+		for pressed in [true, false]:
+			var event := InputEventKey.new()
+			event.keycode = code
+			event.pressed = pressed
+			root.push_input(event, true)
+	await process_frame
+	check(not popup.visible and game.bot_count == count, "Scrolling bot list selects %d bots" % count)
+
 func key(code: Key) -> void:
 	var event := InputEventKey.new()
 	event.physical_keycode = code
@@ -140,14 +167,19 @@ func run() -> void:
 		"The title mode button selects Endless without changing the existing round options")
 	await click(game.hud.mode_toggle)
 	check(not game.endless_mode, "The title mode button switches back to Survival")
-	await click(game.hud.bot_looks_button)
+	check(not game.hud.bot_looks_button.visible,
+		"The desktop title keeps bot appearance inside Options instead of adding another main button")
+	await click(game.hud.options_button)
+	await process_frame
+	game.hud.options_scroll_offset = clampf(game.hud.options_layout().bot_field_y
+		- game.hud.OPTIONS_VIEW_INSET - 24.0, 0.0, game.hud.options_max_scroll())
 	await process_frame
 	var bot_viewport: Rect2 = game.hud.options_content.get_global_rect()
-	check(game.hud.options_open and game.hud.bot_looks_focus
+	check(game.hud.options_open and not game.hud.bot_looks_focus
 		and bot_viewport.encloses(game.hud.bot_palette_selector.get_global_rect())
 		and bot_viewport.encloses(game.hud.bot_mix_selector.get_global_rect())
 		and bot_viewport.encloses(game.hud.bot_pattern_checks[0].get_global_rect()),
-		"Bot Looks opens directly to visible palette and pattern controls")
+		"Options keeps bot palette and pattern controls reachable")
 	await capture("menu-bot-looks.png")
 	await choose(game.hud.bot_palette_selector, BotStyle.Palette.MUTED)
 	check(game.bot_palette == BotStyle.Palette.MUTED and game.sim.rider_color(1).v <= 0.721,
@@ -230,8 +262,9 @@ func run() -> void:
 	# The open color popup covers the left column; use an unobscured control first.
 	await choose(game.hud.size_selector, 1)
 	check(not color_picker.is_visible_in_tree(), "Selecting another option closes the color picker")
-	await choose(game.hud.bot_selector, 0)
-	check(game.bot_count == 7, "Mouse selects seven bots")
+	await choose_bot_count(0)
+	await choose_bot_count(31)
+	await choose_bot_count(7)
 	for index in [0, 2, 3, 1]:
 		await choose(game.hud.size_selector, index)
 		var width: int = [40, 60, 80, 100][index]
@@ -322,8 +355,8 @@ func run() -> void:
 	touch_event.pressed = true
 	root.push_input(touch_event, true)
 	await process_frame
-	check(game.hud.touch_ui_enabled and game.hud.touch_boost.visible
-		and game.hud.touch_view.visible and game.hud.touch_pause.visible,
+	check(game.hud.touch_ui_enabled and game.hud.touch_controls.touch_boost.visible
+		and game.hud.touch_controls.touch_view.visible and game.hud.touch_controls.touch_pause.visible,
 		"A first screen touch reveals mobile controls if platform detection misses")
 	await capture("mobile-touch-controls.png")
 	touch_event.pressed = false

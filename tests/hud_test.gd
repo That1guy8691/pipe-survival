@@ -12,6 +12,16 @@ func settle() -> void:
 	await process_frame
 	await RenderingServer.frame_post_draw
 
+func click_at(point: Vector2) -> void:
+	for pressed in [true, false]:
+		var event := InputEventMouseButton.new()
+		event.position = point
+		event.global_position = point
+		event.button_index = MOUSE_BUTTON_LEFT
+		event.pressed = pressed
+		event.button_mask = MOUSE_BUTTON_MASK_LEFT if pressed else 0
+		root.push_input(event, true)
+
 func no_world_labels() -> bool:
 	for marker in game.pipes.markers:
 		if marker.visible:
@@ -26,9 +36,27 @@ func run() -> void:
 	game.automated = true
 	root.add_child(game)
 	await settle()
+	await capture("retro-title.png")
+	var exhibition_time: float = game.sim.elapsed_time
+	await create_timer(0.25).timeout
+	check(game.title_exhibition and game.motion.autoplay and game.sim.elapsed_time > exhibition_time,
+		"The title background runs a continuous all-bot match")
+	game.camera.view = game.camera.View.OVERVIEW
+	game.title_camera_time = 0.0
+	game.advance_title_preview(0.0)
+	await create_timer(0.45).timeout
+	check(game.camera.view == game.camera.View.CHASE and game.sim.riders[game.watch_id].alive,
+		"The title camera cuts to a living pipe chase view")
+	await capture("retro-title-chase.png")
 	check(game.hud_enabled, "HUD is on by default")
+	# The title's display slot is Full Screen; HUD controls live in the pause menu.
+	game.start_round(821)
+	game.toggle_pause()
+	await settle()
 	await click(game.hud.hud_toggle)
-	check(not game.hud_enabled and game.hud.visible, "Menu toggle disables gameplay HUD while leaving Start accessible")
+	check(not game.hud_enabled and game.hud.visible, "Pause toggle disables gameplay HUD while leaving menus accessible")
+	game.show_title()
+	await settle()
 	await capture("hud-menu.png")
 	await click(game.hud.primary)
 	await settle()
@@ -44,6 +72,14 @@ func run() -> void:
 	check(game.state == "paused" and game.hud.visible, "Escape opens the pause menu from a clean view")
 	check(not game.hud_enabled and no_world_labels(), "Pause retains the hidden-HUD preference")
 	await capture("hud-hidden-pause.png")
+	var paused_time: float = game.sim.elapsed_time
+	await click(game.hud.options_menu_button)
+	await settle()
+	check(game.state == "paused" and game.hud.options_open, "Options opens without leaving the paused round")
+	await click(game.hud.options_back)
+	await settle()
+	check(game.state == "paused" and is_equal_approx(game.sim.elapsed_time, paused_time),
+		"Closing paused Options preserves the current round")
 	await click(game.hud.primary)
 	await settle()
 	check(game.state == "playing" and not game.hud.visible, "Mouse Resume returns to the clean view")
@@ -72,6 +108,36 @@ func run() -> void:
 	for tick in range(100):
 		game.motion.advance(game.Rules.STEP_TIME)
 	game._process(0.0)
+	game.hud.fit_menu(game.hud.overlay_panel_height())
+	await capture("retro-gameplay.png")
+	var right_offset := Vector2(game.hud.retro_wide_offset, 0)
+	await click_at(game.hud.retro_origin + (Vector2(1280, 379) + right_offset) * game.hud.retro_root_scale)
+	check(game.camera.first_person, "Clicking First Person in the gameplay camera group changes the view")
+	await click_at(game.hud.retro_origin + (Vector2(1280, 417) + right_offset) * game.hud.retro_root_scale)
+	check(game.camera.overview, "Clicking Overview in the gameplay camera group changes the view")
+	await click_at(game.hud.retro_origin + (Vector2(1280, 341) + right_offset) * game.hud.retro_root_scale)
+	check(game.camera.view == game.camera.View.CHASE, "Clicking Chase in the gameplay camera group changes the view")
+	await click_at(game.hud.retro_origin + (Vector2(1280, 417) + right_offset) * game.hud.retro_root_scale)
+	await capture("retro-gameplay-controls.png")
+	var roster: Array = game.hud.retro_roster_ids(game.watch_id)
+	var target_id := -1
+	for rider_id_value in roster:
+		var rider_id: int = rider_id_value
+		if rider_id != game.watch_id and game.sim.riders[rider_id].alive:
+			target_id = rider_id
+			break
+	if target_id >= 0:
+		var row := roster.find(target_id)
+		var local_point := Vector2(1100, 546 + row * 29)
+		await click_at(game.hud.retro_origin + (local_point + right_offset) * game.hud.retro_root_scale)
+		check(game.watch_id == target_id and game.overview_focus_id == target_id,
+			"Clicking a live spectator roster row changes the followed pipe and overview highlight")
+	else:
+		check(false, "A second live pipe is available to select from the spectator roster")
+	var previous_scroll: int = game.hud.retro_roster_scroll
+	await click_at(game.hud.retro_origin + (Vector2(1380, 726) + right_offset) * game.hud.retro_root_scale)
+	check(game.hud.retro_roster_scroll > previous_scroll,
+		"The spectator roster scrollbar reaches pipes outside the first seven rows")
 	key(KEY_TAB)
 	game._process(0.0)
 	var selected: int = game.watch_id
@@ -110,6 +176,8 @@ func run() -> void:
 	await capture("hud-auto-small.png")
 	game.show_title()
 	game.set_process(true)
+	game.start_round(821)
+	game.toggle_pause()
 	await settle()
 	await click(game.hud.hud_toggle)
 	check(not game.hud_enabled, "HUD toggle is clickable at minimum window size")

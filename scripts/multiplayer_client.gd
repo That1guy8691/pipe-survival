@@ -53,6 +53,11 @@ func send_respawn() -> void:
 func close() -> void:
 	if socket != null:
 		socket.close()
+	socket = null
+	_last_state = WebSocketPeer.STATE_CLOSED
+	if has_meta("join_message"):
+		remove_meta("join_message")
+	set_process(false)
 
 func _ready() -> void:
 	set_process(true)
@@ -75,7 +80,7 @@ func _process(_delta: float) -> void:
 			set_process(false)
 	if state != WebSocketPeer.STATE_OPEN:
 		return
-	while socket.get_available_packet_count() > 0:
+	while socket != null and socket.get_available_packet_count() > 0:
 		var message := Protocol.parse_packet(socket.get_packet())
 		if message.is_empty():
 			continue
@@ -85,5 +90,6 @@ func _process(_delta: float) -> void:
 			"event": room_event.emit(message)
 			"reject":
 				var reason := str(message.get("reason", "REJECTED"))
-				connection_rejected.emit(reason)
 				socket.close(1008, reason)
+				connection_rejected.emit(reason)
+				return

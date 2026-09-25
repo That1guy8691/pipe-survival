@@ -21,43 +21,65 @@ func run() -> void:
 	print("Menu setup: %.1f ms" % ((Time.get_ticks_usec() - before) / 1000.0))
 	game.set_process(false)
 	check(game.state == "ready", "Startup must open the title menu")
-	check(game.sim.elapsed_time == 0.0, "Startup must not pre-simulate the title backdrop")
+	check(game.sim.elapsed_time > 0.0 and game.sim.elapsed_time <= game.TITLE_WARMUP_STEPS * game.Rules.STEP_TIME + 0.0001,
+		"Startup prewarms only the short title exhibition")
+	check(game.title_exhibition and game.motion.autoplay,
+		"The title opens a live all-bot exhibition")
 	game.primary_action()
 	check(game.state == "countdown", "Start must work before the first backdrop step")
-	check(game.title_preview_steps_left == 0, "Starting must cancel pending backdrop work")
+	check(not game.title_exhibition, "Starting must stop title exhibition behavior")
 	check(game.sim.elapsed_time == 0.0, "Starting must create a fresh round")
 
 	for auto in [false, true]:
 		game.set_auto_mode(auto)
 		game.bot_count = 31
+		game.arena_width = 80
+		game.endless_mode = auto
+		game.player_name = "PREVIEW"
+		game.player_color = Color("ee5f83")
 		game.show_title()
+		check(game.sim.riders.size() == 32 and game.sim.arena_width == 80,
+			"The exhibition uses the selected bot count and arena size")
+		check(game.sim.endless_mode == auto and game.sim.riders[0].name == "PREVIEW"
+			and game.sim.riders[0].color == Color("ee5f83"),
+			"The exhibition uses the selected mode and pipe identity")
+		var preview_time_before: float = game.sim.elapsed_time
 		game.advance_title_preview()
 		check(game.state == "ready", "Backdrop simulation must keep the menu open")
-		check(is_equal_approx(game.sim.elapsed_time, game.Rules.STEP_TIME),
-			"A preview update must only advance one step")
-		check(game.motion.autoplay == auto, "Preview work must preserve the selected driver")
+		check(game.sim.elapsed_time > preview_time_before
+			and game.sim.elapsed_time <= preview_time_before + game.Rules.STEP_TIME + 0.0001,
+			"A preview update advances by at most one fixed step")
+		check(game.motion.autoplay, "Every title pipe uses bot steering regardless of player mode")
+		var first_time: float = game.sim.elapsed_time
+		for step in range(5):
+			game.advance_title_preview()
+		check(game.sim.elapsed_time > first_time, "The title exhibition keeps moving instead of freezing")
+		game.camera.view = game.camera.View.OVERVIEW
+		game.title_camera_time = 0.0
+		game.advance_title_preview(0.0)
+		check(game.camera.view == game.camera.View.CHASE and game.sim.riders[game.watch_id].alive,
+			"The title camera cuts from overview to a living random pipe")
+		game.title_camera_time = 0.0
+		game.advance_title_preview(0.0)
+		check(game.camera.view == game.camera.View.OVERVIEW,
+			"The title camera returns from chase to overview")
 		game.primary_action()
-		game._process(0.01)
-		check(game.state == "countdown" and game.sim.elapsed_time == 0.0,
+		check(game.state == "countdown" and not game.title_exhibition and game.sim.elapsed_time == 0.0,
 			"Interrupted preview work must not advance the new round")
 		check(game.sim.occupied.size() == 32, "Preview trails must not leak into the round")
 
-		game.show_title()
-		for step in range(game.TITLE_PREVIEW_STEPS):
-			game.advance_title_preview()
-		check(game.title_preview_steps_left == 0, "Backdrop work must finish")
-		check(game.state == "ready", "A finished backdrop must not show match results")
-		var final_time: float = game.sim.elapsed_time
-		game.advance_title_preview()
-		check(game.sim.elapsed_time == final_time, "Completed preview must stop simulating")
-
 	game.endless_mode = true
 	game.show_title()
+	game.sim.finished = true
+	game.title_restart_time = 0.01
+	game.advance_title_preview(0.02)
+	check(game.state == "ready" and game.title_exhibition and not game.sim.finished,
+		"A completed title match automatically starts another exhibition")
 	game.advance_title_preview()
 	game.primary_action()
 	check(game.sim.endless_mode and game.state == "countdown",
 		"Starting during preview must preserve the selected game mode")
-	check(game.title_preview_steps_left == 0 and game.sim.elapsed_time == 0.0,
+	check(not game.title_exhibition and game.sim.elapsed_time == 0.0,
 		"Endless must also start fresh without pending backdrop work")
 	print("Startup checks: %d passed, %d failed" % [checks - failures, failures])
 	quit(1 if failures else 0)

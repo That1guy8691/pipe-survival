@@ -76,26 +76,26 @@ func run() -> void:
 	var second_riders := first_riders.duplicate(true)
 	second_riders[0].cell = second_move.target
 	game._on_online_state(packet(1, first_riders, [first_move]))
-	check(game.online_step_active and game.sim.riders[0].cell == first_move.cell,
+	check(game.online_playback.step_active and game.sim.riders[0].cell == first_move.cell,
 		"The server move animates before it is committed")
 	game._process(Rules.STEP_TIME * 0.5)
-	var half_progress: float = game.online_progress
+	var half_progress: float = game.online_playback.progress
 	game._on_online_state(packet(2, second_riders, [second_move], false, {moved_orb: 25}))
-	check(game.online_state_queue.size() == 2 and is_equal_approx(game.online_progress, half_progress),
+	check(game.online_playback.state_queue.size() == 2 and is_equal_approx(game.online_playback.progress, half_progress),
 		"An early packet is buffered without snapping the active move")
 	check(game.sim.scoring.orbs.has(moved_orb)
 		and game.orbs.shown_revision == game.sim.scoring.revision,
 		"Latest orb positions are shown while an older pipe move is animating")
 	game._process(Rules.STEP_TIME * 0.5)
 	check(game.sim.ticks == 1 and game.sim.riders[0].cell == first_move.target
-		and game.online_step_active and is_zero_approx(game.online_progress),
+		and game.online_playback.step_active and is_zero_approx(game.online_playback.progress),
 		"The next authoritative move begins at the previous move's endpoint")
 	game._process(Rules.STEP_TIME)
 	check(game.sim.ticks == 2 and game.sim.riders[0].cell == second_move.target
-		and not game.online_step_active,
+		and not game.online_playback.step_active,
 		"Queued moves finish in tick order")
 	game._process(Rules.STEP_TIME * 2.0)
-	check(is_zero_approx(game.online_progress) and game.sim.riders[0].cell == second_move.target,
+	check(is_zero_approx(game.online_playback.progress) and game.sim.riders[0].cell == second_move.target,
 		"A late packet cannot rewind an idle online pipe")
 	var death_move := move(second_move.target, riders[1].cell, true, 1)
 	var dead_riders := second_riders.duplicate(true)
@@ -128,7 +128,7 @@ func run() -> void:
 		[move(Vector3i(0, 15, 15), Vector3i(1, 15, 15))]))
 	game._process(Rules.STEP_TIME)
 	check(game.sim.ticks == 5 and game.sim.riders[0].cell == Vector3i(1, 15, 15)
-		and not game.online_step_active,
+		and not game.online_playback.step_active,
 		"Online presentation stays synced while the pause menu is open")
 	for tick in range(6, 11):
 		var from_cell := Vector3i(tick - 5, 15, 15)
@@ -137,7 +137,7 @@ func run() -> void:
 		queued_riders[0].cell = to_cell
 		game._on_online_state(packet(tick, queued_riders, [move(from_cell, to_cell)]))
 	game._process(0.0)
-	check(game.sim.ticks == 7 and game.online_state_queue.size() == 3
+	check(game.sim.ticks == 7 and game.online_playback.state_queue.size() == 3
 		and game.pipes.counts[0][0] == 3,
 		"A burst catches up old ticks without dropping their collision trails")
 	game._on_online_state(packet(11, dead_riders, [], true))
