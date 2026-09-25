@@ -22,7 +22,8 @@ func capture(filename: String) -> Image:
 	await RenderingServer.frame_post_draw
 	await process_frame
 	await RenderingServer.frame_post_draw
-	var result := root.get_texture().get_image()
+	# Camera projections belong to this viewport, not the surrounding desktop HUD.
+	var result: Image = game.world_viewport.get_texture().get_image()
 	if not directory.is_empty():
 		check(result.save_png(directory.path_join(filename)) == OK, "Save " + filename)
 	return result
@@ -66,6 +67,27 @@ func region_differences(a: Image, b: Image, center: Vector2, radius: float) -> i
 				count += 1
 	return count
 
+func region_error(a: Image, b: Image, center: Vector2, radius: float) -> float:
+	var error := 0.0
+	for y in range(maxi(0, int(center.y - radius)), mini(a.get_height(), int(center.y + radius))):
+		for x in range(maxi(0, int(center.x - radius)), mini(a.get_width(), int(center.x + radius))):
+			if Vector2(x, y).distance_to(center) > radius:
+				continue
+			var left := a.get_pixel(x, y)
+			var right := b.get_pixel(x, y)
+			error += absf(left.r - right.r) + absf(left.g - right.g) + absf(left.b - right.b)
+	return error
+
+func check_revealed(label: String, blocked: Image, cleared: Image, reference: Image,
+		point: Vector2, radius: float) -> void:
+	var original := region_error(blocked, reference, point, radius)
+	var remaining := region_error(cleared, reference, point, radius)
+	print("%s obstruction_remaining=%.3f" % [label, remaining / maxf(original, 0.001)])
+	# A faint continuous ghost is intentional; compare its obstruction with the
+	# solid pipe instead of requiring identical pixels to a deleted pipe.
+	check(original > 1.0 and remaining < original * 0.25,
+		label + " must remove at least 75% of the foreground obstruction")
+
 func check_turn_frame(label: String) -> void:
 	var batch: MultiMeshInstance3D = game.pipes.batches[0][0]
 	var visible_count := batch.multimesh.visible_instance_count
@@ -79,7 +101,6 @@ func check_turn_frame(label: String) -> void:
 	cutaway(true)
 	var cleared := await capture(label + "-on.png")
 	var head_pixel: Vector2 = game.camera.unproject_position(game.pipes.heads[0].global_position)
-	head_pixel *= Vector2(reference.get_size()) / root.get_visible_rect().size
 	var route_pixel := Vector2(reference.get_size()) * 0.5
 	for point: Vector2 in [head_pixel, route_pixel]:
 		# The route sample must exclude the connected collar just above the head.
@@ -87,9 +108,7 @@ func check_turn_frame(label: String) -> void:
 		var sample_radius := 20.0 if point == head_pixel else 12.0
 		check(region_differences(blocked, reference, point, sample_radius) > 100,
 			label + " must reproduce the own-tail obstruction")
-		var remaining := region_differences(cleared, reference, point, sample_radius)
-		print("%s point=%s remaining_blocked_pixels=%d" % [label, point, remaining])
-		check(remaining < 10, label + " still hides the head or route after W")
+		check_revealed(label, blocked, cleared, reference, point, sample_radius)
 
 func check_up_turn() -> void:
 	game.state = "playing"
@@ -155,6 +174,7 @@ func run() -> void:
 	game.set_process(false)
 	game.hud.set_process(false)
 	game.bot_count = 1
+	game.pipes.pattern_rng.seed = 821
 	game.player_pattern = game.PipeRenderer.Appearance.Pattern.CHECKER
 	game.start_round(821)
 	game.state = "playing"
@@ -223,9 +243,9 @@ func run() -> void:
 	cutaway(true)
 	var cleared := await capture("blocked-on.png")
 	check(differences(blocked, unobstructed, true) > 1000, "Foreground fixture must obscure the circle")
-	changed = differences(cleared, unobstructed, true)
-	print("FOREGROUND remaining_blocked_pixels=%d" % changed)
-	check(changed < 10, "Foreground pipes still obscure the center")
+	check_revealed("FOREGROUND", blocked, cleared, unobstructed,
+		Vector2(unobstructed.get_size()) * 0.5, minf(unobstructed.get_width(), unobstructed.get_height()) * 0.2)
+	check(differences(cleared, unobstructed, true) > 50, "Cleared pipes retain a visible ghost contour")
 	# An old loop of the followed pipe must clear too, despite sharing its color/material.
 	batch.multimesh.visible_instance_count = first
 	var own_batch: MultiMeshInstance3D = game.pipes.batches[0][0]
@@ -238,9 +258,8 @@ func run() -> void:
 	cutaway(true)
 	var own_cleared := await capture("old-own-pipe-on.png")
 	check(differences(own_blocked, unobstructed, true) > 1000, "Old own-pipe fixture must obscure the circle")
-	changed = differences(own_cleared, unobstructed, true)
-	print("OLD OWN PIPE remaining_blocked_pixels=%d" % changed)
-	check(changed < 10, "Old sections of the followed pipe still obscure the center")
+	check_revealed("OLD OWN PIPE", own_blocked, own_cleared, unobstructed,
+		Vector2(unobstructed.get_size()) * 0.5, minf(unobstructed.get_width(), unobstructed.get_height()) * 0.2)
 	game.swap_camera_view()
 	game._process(0.0)
 	check(not game.pipes.cutaway_enabled, "First person must keep collision hazards solid")

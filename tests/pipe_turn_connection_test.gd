@@ -8,6 +8,7 @@ func run() -> void:
 	game.set_process(false)
 	game.hud.set_process(false)
 	game.bot_count = 1
+	game.pipes.pattern_rng.seed = 821
 	game.player_pattern = game.PipeRenderer.Appearance.Pattern.CHECKER
 	game.start_round(821)
 	game.state = "playing"

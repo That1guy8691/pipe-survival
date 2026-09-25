@@ -85,10 +85,12 @@ Each WASD turn is triggered once per tap; two turns can be queued, each applied 
 the next available grid junction.
 Manual rounds start with the familiar Chase camera. C cycles through First Person,
 Overview, then back to Chase. Arrow keys adjust the camera orbit or look direction.
-Chase clears foreground pipes inside a large, soft-edged circle at the center of the
-screen. The tail directly behind the followed head stays visible; sections that cross
-the view during a turn can clear. Distant pipes remain solid. First Person and Overview
-show pipes without the cutaway filter.
+Chase fades obstructing pipe sections inside a tapered cone from the camera toward
+a point just ahead of the followed head. Faded sections retain a faint continuous
+shape without a speckled screen cutout. The cone follows camera orbit, including
+shoulder views. The head connection and hazards ahead stay solid; the protected
+connection area shrinks when walls push the camera close. First Person and Overview
+show pipes without the cutaway effect.
 Q and E adjust FOV during a round;
 the Game Options slider sets its starting value. Camera switching preserves steering
 relative to the pipe.
@@ -175,6 +177,9 @@ Endless respawn and trail cleanup use the same simulation and renderer ownership
 `scripts/orb_renderer.gd` draws the collectible gold orbs.
 `scripts/pipe_geometry.gd` creates reusable straight and elbow meshes.
 `scripts/pipe_renderer.gd` batches permanent pipe sections and animates their growing tips.
+`scripts/pipe_cutaway.gdshaderinc` defines the chase visibility cone. Solid and ghost
+passes share appearance code in `scripts/pipe_surface.gdshaderinc`; the ghost pass
+is attached only while the chase cutaway is enabled.
 `scripts/pipe_inlet.gd` builds the fixed wall fittings at each pipe's origin.
 `scripts/camera_rig.gd` owns chase, orbit, and zoom.
 `scripts/arena.gd` builds the cube and lighting.
@@ -239,6 +244,7 @@ Godot_v4.7-stable_win64_console.exe --path . --script res://tests/renderer_buffe
 Godot_v4.7-stable_win64_console.exe --path . --rendering-method gl_compatibility --script res://tests/pipe_cutaway_visual_test.gd
 Godot_v4.7-stable_win64_console.exe --path . --rendering-method gl_compatibility --script res://tests/pipe_turn_connection_test.gd
 Godot_v4.7-stable_win64_console.exe --path . --rendering-method gl_compatibility --script res://tests/pipe_cutaway_close_camera_test.gd
+Godot_v4.7-stable_win64_console.exe --path . --rendering-method gl_compatibility --script res://tests/pipe_cutaway_cone_test.gd
 ```
 
 The render-buffer check requires a real renderer; Godot's headless dummy renderer
@@ -249,5 +255,10 @@ followed pipe, and checks camera switching. It also checks visibility through th
 followed tail during a W turn and preserves the straight vertical tail afterward.
 The turn-connection check compares the full tail with the filter off and on through
 left, right, and downward turns, including the transition out of each elbow.
-The close-camera check follows a survivor with the camera inside a recent straight
-section or elbow and verifies that the opening reveals the survivor's head.
+The close-camera check follows a survivor with the camera inside a straight section
+or elbow and verifies that the effect reveals the survivor's head. The cone check
+covers three arrow presses to either side, an off-centre head, close chase distances,
+60°/110° FOV, solid hazards ahead, and a crowded 32-pipe round. Add
+`-- --qa-dir=C:\path\to\qa-output --motion` to capture a six-second frame sequence.
+Cutaway checks capture the 3D viewport itself so the desktop HUD cannot shift their
+sample positions.

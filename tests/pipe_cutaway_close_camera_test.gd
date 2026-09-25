@@ -1,5 +1,5 @@
 extends "res://tests/pipe_cutaway_visual_test.gd"
-## A camera intersecting a followed survivor's recent pipe must still see through it.
+## A camera intersecting a followed survivor's pipe must still see through it.
 
 func run() -> void:
 	game = load("res://main.tscn").instantiate()
@@ -8,6 +8,7 @@ func run() -> void:
 	game.set_process(false)
 	game.hud.set_process(false)
 	game.bot_count = 1
+	game.pipes.pattern_rng.seed = 821
 	game.start_round(821)
 	game.state = "playing"
 	game.sim.riders[0].alive = false
@@ -37,8 +38,8 @@ func run() -> void:
 		batch.hide()
 	cutaway(true)
 	var reference := await capture("spectator-reference.png")
-	# Keep this section flagged as recent. The camera can pass through it while
-	# smoothing around a turn or switching the followed survivor.
+	# The camera can pass through a section while smoothing around a turn or
+	# switching the followed survivor, regardless of when the trail was created.
 	for kind in range(2):
 		var batch: MultiMeshInstance3D = game.pipes.batches[1][kind]
 		batch.show()
@@ -54,12 +55,10 @@ func run() -> void:
 			cutaway(true)
 			var cleared := await capture("spectator-%d-%s-on.png" % [kind, offset])
 			var head_pixel: Vector2 = game.camera.unproject_position(game.pipes.heads[1].global_position)
-			head_pixel *= Vector2(reference.get_size()) / root.get_visible_rect().size
 			check(region_differences(blocked, reference, head_pixel, 20.0) > 100,
 				"Close camera fixture must obscure the survivor")
-			var remaining := region_differences(cleared, reference, head_pixel, 20.0)
-			print("SPECTATOR kind=%d offset=%.2f remaining_blocked_pixels=%d" % [kind, offset, remaining])
-			check(remaining < 10, "A recent section intersecting the camera still hides the survivor")
+			check_revealed("SPECTATOR kind=%d offset=%.2f" % [kind, offset], blocked, cleared,
+				reference, head_pixel, 20.0)
 		batch.hide()
 	print("CLOSE CAMERA CUTAWAY: %d failures" % failures)
 	quit(1 if failures else 0)
