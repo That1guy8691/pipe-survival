@@ -5,6 +5,9 @@ const Geometry = preload("res://scripts/pipe_geometry.gd")
 const Inlet = preload("res://scripts/pipe_inlet.gd")
 const Appearance = preload("res://scripts/pipe_appearance.gd")
 const BotStyle = preload("res://scripts/bot_style.gd")
+# Cover the connected tail back past the chase camera (6.315 units from the head).
+# A single completed cell leaves the next cell visibly cut inside the circle.
+const CUTAWAY_TAIL_LENGTH := 8.0
 enum OverviewStyle { NORMAL, HIGHLIGHT, ENDS }
 var player_pattern := Appearance.Pattern.SOLID
 var player_material := Appearance.Finish.ALLOY
@@ -23,13 +26,16 @@ var batches: Array = []
 var counts: Array = []
 var active: Array[MeshInstance3D] = []
 var heads: Array[MeshInstance3D] = []
+var head_forwards: Array[Vector3] = []
 var markers: Array[Label3D] = []
 var active_materials: Array[ShaderMaterial] = []
 var plans: Array[Dictionary] = []
+var recent_sections: Array = []
 var inlets: Array[Node3D] = []
 var inlet_materials: Array[StandardMaterial3D] = []
 var applied_overview_style := -1
 var applied_focus_id := -1
+var cutaway_enabled := false
 
 func _ready() -> void:
 	pattern_rng.randomize()
@@ -62,6 +68,7 @@ func ensure_count(total: int) -> void:
 			per_rider.append(batch)
 		batches.append(per_rider)
 		counts.append([0, 0])
+		recent_sections.append([])
 		var moving := MeshInstance3D.new()
 		var material := Geometry.growing_material(pipe_color,
 			player_material if i == player_id else Appearance.Finish.ALLOY,
@@ -82,6 +89,7 @@ func ensure_count(total: int) -> void:
 		head.material_override = head_material
 		add_child(head)
 		heads.append(head)
+		head_forwards.append(Vector3.FORWARD)
 		var marker := Label3D.new()
 		marker.text = model.rider_name(i)
 		marker.font_size = 38 if i == player_id else 28
@@ -95,10 +103,12 @@ func ensure_count(total: int) -> void:
 
 func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 	ensure_count(total)
+	set_cutaway(false, -1)
 	applied_overview_style = -1
 	applied_focus_id = -1
 	plans.clear()
 	for i in range(batches.size()):
+		recent_sections[i] = []
 		counts[i] = [0, 0]
 		for batch: MultiMeshInstance3D in batches[i]:
 			batch.multimesh.visible_instance_count = 0
@@ -110,6 +120,7 @@ func reset(total: int = Rules.DEFAULT_BOTS + 1) -> void:
 	for i in range(total):
 		plans.append({})
 		var rider: Dictionary = model.riders[i]
+		head_forwards[i] = Vector3(rider.forward)
 		var pipe_color: Color = model.rider_color(i)
 		# Pick for this round; Endless respawns draw again from the selected mix.
 		var pattern := player_pattern if i == player_id else BotStyle.choose_pattern(pattern_rng,
@@ -211,6 +222,28 @@ func set_overview_style(style: int, focus_id: int) -> void:
 static func scale_rgb(color: Color, factor: float) -> Color:
 	return Color(color.r * factor, color.g * factor, color.b * factor, color.a)
 
+func update_cutaway(camera: Camera3D, focus_id: int, enabled: bool) -> void:
+	var head_view := camera.to_local(heads[focus_id].global_position)
+	var depth := maxf(0.0, -head_view.z)
+	set_cutaway(enabled and depth > 0.0, focus_id if enabled else -1, depth, head_view)
+
+func set_cutaway(enabled: bool, focus_id: int = -1, depth: float = 0.0,
+		head_view: Vector3 = Vector3.ZERO) -> void:
+	cutaway_enabled = enabled
+	for i in range(batches.size()):
+		for batch: MultiMeshInstance3D in batches[i]:
+			var material := batch.material_override as ShaderMaterial
+			material.set_shader_parameter("cutaway_enabled", enabled)
+			material.set_shader_parameter("cutaway_depth", depth)
+			material.set_shader_parameter("preserve_focus_segment", i == focus_id)
+			material.set_shader_parameter("cutaway_forward", head_forwards[i])
+			material.set_shader_parameter("cutaway_head_view", head_view)
+		active_materials[i].set_shader_parameter("cutaway_enabled", enabled)
+		active_materials[i].set_shader_parameter("cutaway_depth", depth)
+		active_materials[i].set_shader_parameter("preserve_focus_segment", i == focus_id)
+		active_materials[i].set_shader_parameter("cutaway_forward", head_forwards[i])
+		active_materials[i].set_shader_parameter("cutaway_head_view", head_view)
+
 func begin_step(riders: Array[Dictionary], directions: Array[Vector3i]) -> void:
 	for i in range(riders.size()):
 		begin_rider(i, riders[i], directions[i])
@@ -251,6 +284,7 @@ func animate_rider(i: int, progress: float) -> void:
 	active_materials[i].set_shader_parameter("fill", progress)
 	var head_pose := pose(i, progress)
 	heads[i].position = head_pose.position
+	head_forwards[i] = head_pose.forward
 	markers[i].position = head_pose.position + head_pose.up * 1.65
 
 func commit(moves: Array[Dictionary]) -> void:
@@ -268,13 +302,29 @@ func commit(moves: Array[Dictionary]) -> void:
 		batch.multimesh.set_instance_transform(count, Transform3D(
 			Geometry.orientation(move.incoming, move.outgoing, segment_up), model.world(move.cell)))
 		batch.multimesh.set_instance_custom_data(count,
-			Color(float(plans[i].get("rainbow_phase", 0.0)), 0.0, 0.0, 1.0))
+			Color(float(plans[i].get("rainbow_phase", 0.0)), 1.0, 0.0, 1.0))
+		protect_connected_tail(i, kind, count)
 		counts[i][kind] += 1
 		batch.multimesh.visible_instance_count = counts[i][kind]
 		active[i].visible = false
 		if move.died:
 			heads[i].visible = false
 			markers[i].visible = false
+
+func protect_connected_tail(rider_id: int, kind: int, index: int) -> void:
+	var sections: Array = recent_sections[rider_id]
+	sections.append({"kind": kind, "index": index, "length": 2.0 if kind == 0 else PI * 0.5})
+	var length := 0.0
+	for section: Dictionary in sections:
+		length += section.length
+	# Only the recent connected path is exempt; old loops of the same pipe still clear.
+	while sections.size() > 1 and length - float(sections[0].length) >= CUTAWAY_TAIL_LENGTH:
+		var oldest: Dictionary = sections.pop_front()
+		length -= oldest.length
+		var batch: MultiMeshInstance3D = batches[rider_id][oldest.kind]
+		var data := batch.multimesh.get_instance_custom_data(oldest.index)
+		data.g = 0.0
+		batch.multimesh.set_instance_custom_data(oldest.index, data)
 
 func rebuild_from_history(histories: Array) -> void:
 	"""Recreate visible authoritative trails after a full network snapshot."""
@@ -299,6 +349,7 @@ func remove_rider(index: int) -> void:
 	if index < 0 or index >= batches.size():
 		return
 	counts[index] = [0, 0]
+	recent_sections[index] = []
 	for batch: MultiMeshInstance3D in batches[index]:
 		batch.multimesh.visible_instance_count = 0
 	active[index].visible = false
@@ -316,6 +367,7 @@ func restore_rider(index: int, rider: Dictionary) -> void:
 		model.world(rider.source_cell) - Vector3(forward) * Rules.SPACING * 0.5)
 	inlets[index].visible = true
 	heads[index].position = model.world(rider.cell)
+	head_forwards[index] = Vector3(rider.forward)
 	markers[index].position = model.world(rider.cell) + Vector3(rider.up) * 1.65
 	markers[index].text = model.rider_name(index)
 	heads[index].visible = true

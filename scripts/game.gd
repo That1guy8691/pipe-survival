@@ -414,6 +414,9 @@ func _process(delta: float) -> void:
 			pipes.heads[i].visible = sim.riders[i].alive and not hidden
 		if state == "ready":
 			camera.yaw += delta * 0.055
+	pipes.update_cutaway(camera, watch_id,
+		state in ["countdown", "playing", "paused"] and crash_view_time <= 0.0
+		and sim.riders[watch_id].alive and camera.view == camera.View.CHASE)
 	update_hud_visibility()
 
 func _unhandled_input(event: InputEvent) -> void:

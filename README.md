@@ -85,6 +85,10 @@ Each WASD turn is triggered once per tap; two turns can be queued, each applied 
 the next available grid junction.
 Manual rounds start with the familiar Chase camera. C cycles through First Person,
 Overview, then back to Chase. Arrow keys adjust the camera orbit or look direction.
+Chase clears foreground pipes inside a large, soft-edged circle at the center of the
+screen. The tail directly behind the followed head stays visible; sections that cross
+the view during a turn can clear. Distant pipes remain solid. First Person and Overview
+show pipes without the cutaway filter.
 Q and E adjust FOV during a round;
 the Game Options slider sets its starting value. Camera switching preserves steering
 relative to the pipe.
@@ -225,7 +229,18 @@ including popup item selection and a smaller window. Run it with a renderer:
 ```powershell
 Godot_v4.7-stable_win64_console.exe --path . --script res://tests/menu_click_test.gd
 Godot_v4.7-stable_win64_console.exe --path . --script res://tests/renderer_buffer_test.gd
+Godot_v4.7-stable_win64_console.exe --path . --rendering-method gl_compatibility --script res://tests/pipe_cutaway_visual_test.gd
+Godot_v4.7-stable_win64_console.exe --path . --rendering-method gl_compatibility --script res://tests/pipe_turn_connection_test.gd
+Godot_v4.7-stable_win64_console.exe --path . --rendering-method gl_compatibility --script res://tests/pipe_cutaway_close_camera_test.gd
 ```
 
 The render-buffer check requires a real renderer; Godot's headless dummy renderer
 does not retain the instance transforms this check reads back.
+The cutaway check also requires a real renderer. It compares rendered frames for a
+continuous followed tail, foreground clearing, distant pipes, and old loops of the
+followed pipe, and checks camera switching. It also checks visibility through the
+followed tail during a W turn and preserves the straight vertical tail afterward.
+The turn-connection check compares the full tail with the filter off and on through
+left, right, and downward turns, including the transition out of each elbow.
+The close-camera check follows a survivor with the camera inside a recent straight
+section or elbow and verifies that the opening reveals the survivor's head.
